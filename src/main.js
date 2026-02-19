@@ -88,7 +88,7 @@ function updateRays() {
 
     if (!params.showRays) return;
 
-    const samples = 16;
+    const samples = 8;
 
     for (let i = 0; i < samples; i++) {
         for (let j = 0; j < samples; j++) {
@@ -107,8 +107,10 @@ function updateRays() {
 
             const dir = P.clone().normalize();
 
+            const opposite = dir.clone().multiplyScalar(-300);
+
             const geometry = new THREE.BufferGeometry().setFromPoints([
-                new THREE.Vector3(0, 0, 0),
+                opposite,
                 P
             ]);
 
