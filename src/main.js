@@ -2,7 +2,7 @@ import * as THREE from 'https://esm.sh/three@0.160.0';
 import { OrbitControls } from 'https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js';
 import GUI from 'https://esm.sh/lil-gui@0.19';
 
-const renderer = new THREE.WebGLRenderer({ antialias: true });
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setScissorTest(true);
 document.body.appendChild(renderer.domElement);
@@ -242,26 +242,23 @@ function exportImage() {
     const w = renderer.domElement.width;
     const h = renderer.domElement.height;
 
-    const bottomHeight = h * 0.4;
-
-    const pixels = new Uint8Array(w * bottomHeight * 4);
-
-    renderer.readRenderTargetPixels(
-        null,
-        0,
-        0,
-        w,
-        bottomHeight,
-        pixels
-    );
+    const bottomHeight = Math.floor(h * 0.4);
 
     const canvas = document.createElement("canvas");
     canvas.width = w;
     canvas.height = bottomHeight;
     const ctx = canvas.getContext("2d");
-    const imgData = ctx.createImageData(w, bottomHeight);
-    imgData.data.set(pixels);
-    ctx.putImageData(imgData, 0, 0);
+
+    // Crop just the bottom panel from the WebGL canvas.
+    // Canvas Y=0 is top; the bottom panel sits at the top of the WebGL canvas
+    // because Three.js renders it last into viewport y=0 (WebGL bottom = canvas top after flip).
+    ctx.drawImage(
+        renderer.domElement,
+        0, 0,            // source x, y
+        w, bottomHeight, // source width, height
+        0, 0,            // destination x, y
+        w, bottomHeight  // destination width, height
+    );
 
     const link = document.createElement("a");
     link.download = "cylinder_projection.png";
