@@ -40,10 +40,9 @@ sceneView.add(sphere);
 // ==========================
 
 const sceneGeometry = new THREE.Scene();
-sceneGeometry.background = new THREE.Color(0x1a1a2e);
 
-const cameraFree = new THREE.PerspectiveCamera(60, window.innerWidth / (window.innerHeight / 3), 0.01, 1000);
-cameraFree.position.set(5, 3, 5);
+const cameraFree = new THREE.PerspectiveCamera(60, (window.innerWidth / 2) / (window.innerHeight / 2), 0.01, 1000);
+cameraFree.position.set(100, 100, 100);
 
 const controlsFree = new OrbitControls(cameraFree, renderer.domElement);
 controlsFree.target.set(0, 0, 1);
@@ -51,10 +50,16 @@ controlsFree.update();
 
 // Small sphere to mark the pinhole origin
 const originMarker = new THREE.Mesh(
-    new THREE.SphereGeometry(0.05, 16, 16),
+    new THREE.SphereGeometry(0.5, 16, 16),
     new THREE.MeshBasicMaterial({ color: 0xff4444 })
 );
 sceneGeometry.add(originMarker);
+
+// Share the same panorama as a background in sceneGeometry
+const sphereGeometry2 = new THREE.SphereGeometry(200, 64, 64);
+sphereGeometry2.scale(-1, 1, 1);
+const sphere2 = new THREE.Mesh(sphereGeometry2, sphereMat);
+sceneGeometry.add(sphere2);
 
 // Cylinder visualization
 let cylinderMesh;
@@ -207,8 +212,8 @@ sceneCylinder.add(quad);
 // ==========================
 
 const params = {
-    radius: 1,
-    length: 2,
+    radius: 10,
+    length: 10,
     offset: 0.5,
     cutOffset: 0,
     mirror: false,
@@ -219,9 +224,9 @@ const params = {
 
 const gui = new GUI();
 
-gui.add(params, 'radius', 0.1, 5).onChange(updateAll);
-gui.add(params, 'length', 0.1, 10).onChange(updateAll);
-gui.add(params, 'offset', 0, 5).onChange(updateAll);
+gui.add(params, 'radius', 10, 100).onChange(updateAll);
+gui.add(params, 'length', 10, 100).onChange(updateAll);
+gui.add(params, 'offset', 0, 50).onChange(updateAll);
 gui.add(params, 'cutOffset', 0, 1).onChange(v => quad.material.uniforms.cutOffset.value = v);
 gui.add(params, 'mirror').onChange(v => quad.material.uniforms.mirror.value = v);
 gui.add(params, 'freeView').onChange(toggleFreeView);
@@ -242,9 +247,18 @@ updateAll();
 function toggleFreeView() {
     // Reset the free camera to a sensible position when enabling
     if (params.freeView) {
-        cameraFree.position.set(5, 3, 5);
-        controlsFree.target.set(0, 0, params.offset + params.length / 2);
-        controlsFree.update();
+        // cameraFree.position.set(5, 3, 5);
+        // controlsFree.target.set(0, 0, params.offset + params.length / 2);
+        // controlsFree.update();
+        controls.enablePan = false;
+        controls.enableRotate = false;
+        controlsFree.enablePan = true;
+        controlsFree.enableRotate = true;
+    } else {
+        controls.enablePan = true;
+        controls.enableRotate = true;
+        controlsFree.enablePan = false;
+        controlsFree.enableRotate = false;
     }
 }
 
