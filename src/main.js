@@ -213,7 +213,7 @@ function updateAll() {
     quad.material.uniforms.radius.value = params.radius;
     quad.material.uniforms.length.value = params.length;
     quad.material.uniforms.offset.value = params.offset;
-    //createCylinder(params.radius, params.length, params.offset);
+    createCylinder(params.radius, params.length, params.offset);
     updateRays();
 }
 updateAll();
@@ -246,7 +246,7 @@ function exportImage() {
 
     const canvas = document.createElement("canvas");
     canvas.width = w;
-    canvas.height = bottomHeight;
+    canvas.height = h; //bottomHeight;
     const ctx = canvas.getContext("2d");
 
     // Crop just the bottom panel from the WebGL canvas.
@@ -255,9 +255,9 @@ function exportImage() {
     ctx.drawImage(
         renderer.domElement,
         0, 0,            // source x, y
-        w, bottomHeight, // source width, height
+        w, h, // source width, height
         0, 0,            // destination x, y
-        w, bottomHeight  // destination width, height
+        w, h  // destination width, height
     );
 
     const link = document.createElement("a");
