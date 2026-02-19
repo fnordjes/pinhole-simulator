@@ -48,6 +48,9 @@ const controlsFree = new OrbitControls(cameraFree, renderer.domElement);
 controlsFree.target.set(0, 0, 1);
 controlsFree.update();
 
+const geometryOrientationGroup = new THREE.Group();
+sceneGeometry.add(geometryOrientationGroup);
+
 // Small sphere to mark the pinhole origin
 const originMarker = new THREE.Mesh(
     new THREE.SphereGeometry(0.5, 16, 16),
@@ -76,11 +79,11 @@ function createCylinder(radius, length, offset) {
         opacity: 0.4
     });
     cylinderMesh = new THREE.Mesh(geo, mat);
-    sceneGeometry.add(cylinderMesh);
+    geometryOrientationGroup.add(cylinderMesh);
 }
 
 let rayGroup = new THREE.Group();
-sceneGeometry.add(rayGroup);
+geometryOrientationGroup.add(rayGroup);
 
 function updateRays() {
 
@@ -346,6 +349,7 @@ function render() {
     controlsFree.update();
 
     cameraView.updateMatrixWorld();
+    geometryOrientationGroup.quaternion.copy(cameraView.quaternion);
     const rot = new THREE.Matrix3().setFromMatrix4(cameraView.matrixWorld);
     quad.material.uniforms.cameraRotation.value = rot;
 
