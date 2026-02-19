@@ -35,11 +35,32 @@ const sphereMat = new THREE.MeshBasicMaterial();
 const sphere = new THREE.Mesh(sphereGeo, sphereMat);
 sceneView.add(sphere);
 
+// ==========================
+// Scene 3 (Geometry / Free View)
+// ==========================
+
+const sceneGeometry = new THREE.Scene();
+sceneGeometry.background = new THREE.Color(0x1a1a2e);
+
+const cameraFree = new THREE.PerspectiveCamera(60, window.innerWidth / (window.innerHeight / 3), 0.01, 1000);
+cameraFree.position.set(5, 3, 5);
+
+const controlsFree = new OrbitControls(cameraFree, renderer.domElement);
+controlsFree.target.set(0, 0, 1);
+controlsFree.update();
+
+// Small sphere to mark the pinhole origin
+const originMarker = new THREE.Mesh(
+    new THREE.SphereGeometry(0.05, 16, 16),
+    new THREE.MeshBasicMaterial({ color: 0xff4444 })
+);
+sceneGeometry.add(originMarker);
+
 // Cylinder visualization
 let cylinderMesh;
 
 function createCylinder(radius, length, offset) {
-    if (cylinderMesh) sceneView.remove(cylinderMesh);
+    if (cylinderMesh) sceneGeometry.remove(cylinderMesh);
     const geo = new THREE.CylinderGeometry(radius, radius, length, 64, 1, true);
     geo.translate(0, offset + length / 2, 0);
     geo.rotateX(Math.PI / 2);
@@ -50,11 +71,11 @@ function createCylinder(radius, length, offset) {
         opacity: 0.4
     });
     cylinderMesh = new THREE.Mesh(geo, mat);
-    sceneView.add(cylinderMesh);
+    sceneGeometry.add(cylinderMesh);
 }
 
 let rayGroup = new THREE.Group();
-sceneView.add(rayGroup);
+sceneGeometry.add(rayGroup);
 
 function updateRays() {
 
@@ -219,22 +240,12 @@ function updateAll() {
 updateAll();
 
 function toggleFreeView() {
+    // Reset the free camera to a sensible position when enabling
     if (params.freeView) {
-        controls.enableZoom = true;
-        controls.enablePan = true;
-        controls.minDistance = 0.1;
-        controls.maxDistance = 50;
-        controls.target.set(0, params.offset + params.length / 2, 0);
-        cameraView.position.set(5, 5, 5);
-    } else {
-        controls.enableZoom = false;
-        controls.enablePan = false;
-        controls.minDistance = 0.001;
-        controls.maxDistance = 0.001;
-        cameraView.position.set(0, 0, 0.001);
-        controls.target.set(0, 0, 0);
+        cameraFree.position.set(5, 3, 5);
+        controlsFree.target.set(0, 0, params.offset + params.length / 2);
+        controlsFree.update();
     }
-    controls.update();
 }
 
 function exportImage() {
@@ -242,11 +253,9 @@ function exportImage() {
     const w = renderer.domElement.width;
     const h = renderer.domElement.height;
 
-    const bottomHeight = Math.floor(h * 0.4);
-
     const canvas = document.createElement("canvas");
     canvas.width = w;
-    canvas.height = h; //bottomHeight;
+    canvas.height = h;
     const ctx = canvas.getContext("2d");
 
     // Crop just the bottom panel from the WebGL canvas.
@@ -307,8 +316,7 @@ document.getElementById('fileInput').addEventListener('change', e => {
 
 window.addEventListener('resize', () => {
     renderer.setSize(window.innerWidth, window.innerHeight);
-    cameraView.aspect = window.innerWidth / (window.innerHeight * 0.6);
-    cameraView.updateProjectionMatrix();
+    // Aspect ratios are recalculated each frame in the render loop
 });
 
 // ==========================
@@ -319,6 +327,7 @@ function render() {
     requestAnimationFrame(render);
 
     controls.update();
+    controlsFree.update();
 
     cameraView.updateMatrixWorld();
     const rot = new THREE.Matrix3().setFromMatrix4(cameraView.matrixWorld);
@@ -327,16 +336,47 @@ function render() {
     const w = window.innerWidth;
     const h = window.innerHeight;
 
-    const topH = h * 0.6;
-    const bottomH = h * 0.4;
+    if (params.freeView) {
+        // Top half split vertically: left = panorama, right = geometry
+        const topH = Math.floor(h * 0.6);
+        const bottomH = h - topH;
+        const halfW = Math.floor(w / 2);
 
-    renderer.setViewport(0, bottomH, w, topH);
-    renderer.setScissor(0, bottomH, w, topH);
-    renderer.render(sceneView, cameraView);
+        // Top-left: panorama view
+        renderer.setViewport(0, bottomH, halfW, topH);
+        renderer.setScissor(0, bottomH, halfW, topH);
+        cameraView.aspect = halfW / topH;
+        cameraView.updateProjectionMatrix();
+        renderer.render(sceneView, cameraView);
 
-    renderer.setViewport(0, 0, w, bottomH);
-    renderer.setScissor(0, 0, w, bottomH);
-    renderer.render(sceneCylinder, cameraOrtho);
+        // Top-right: geometry / free view
+        renderer.setViewport(halfW, bottomH, halfW, topH);
+        renderer.setScissor(halfW, bottomH, halfW, topH);
+        cameraFree.aspect = halfW / topH;
+        cameraFree.updateProjectionMatrix();
+        renderer.render(sceneGeometry, cameraFree);
+
+        // Bottom: unwrapped film (full width)
+        renderer.setViewport(0, 0, w, bottomH);
+        renderer.setScissor(0, 0, w, bottomH);
+        renderer.render(sceneCylinder, cameraOrtho);
+
+    } else {
+        // Two panels: top 60% panorama, bottom 40% film
+        const topH = Math.floor(h * 0.6);
+        const bottomH = h - topH;
+
+        cameraView.aspect = w / topH;
+        cameraView.updateProjectionMatrix();
+
+        renderer.setViewport(0, bottomH, w, topH);
+        renderer.setScissor(0, bottomH, w, topH);
+        renderer.render(sceneView, cameraView);
+
+        renderer.setViewport(0, 0, w, bottomH);
+        renderer.setScissor(0, 0, w, bottomH);
+        renderer.render(sceneCylinder, cameraOrtho);
+    }
 }
 
 render();
