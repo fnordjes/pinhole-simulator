@@ -177,7 +177,7 @@ void main() {
     float lat = asin(dir.y);
 
     float u = lon / (2.0 * PI) + 0.5;
-    float v = lat / PI + 0.5;
+    float v = 1.0 - (lat / PI + 0.5);
 
     vec3 color = texture2D(envTex, vec2(u, v)).rgb;
 
