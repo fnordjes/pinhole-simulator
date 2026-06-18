@@ -76,7 +76,7 @@ textureLoader.load("./equi.jpg", (tex) => {
     uniforms.envTex.value = envTex;
 
     buildEnvironmentSphere(tex);
-    rebuildFilm();   // build film only after texture ready
+    rebuildFilm();   // build film (and flat view) only after texture ready
 });
 
 document.getElementById('fileInput').addEventListener('change', e => {
@@ -92,7 +92,7 @@ document.getElementById('fileInput').addEventListener('change', e => {
         uniforms.envTex.value = envTex;
 
         buildEnvironmentSphere(tex);
-        rebuildFilm();   // build film only after texture ready
+        rebuildFilm();   // build film (and flat view) only after texture ready
     });
 });
 
@@ -124,7 +124,7 @@ void main() {
     float lon = atan(dir.x, dir.z);
     float lat = asin(dir.y);
 
-    float u = lon / (2.0 * PI) + 0.5;
+    float u = 1.0 - (lon / (2.0 * PI) + 0.5);
     float v = 1.0 - (lat / PI + 0.5);
 
     vec3 color = texture2D(envTex, vec2(u, v)).rgb;
@@ -142,14 +142,13 @@ const uniforms = {
 // ----------------------------------------------------
 
 function buildEnvironmentSphere(texture) {
-
     const geometry = new THREE.SphereGeometry(100, 64, 64);
-
+    geometry.scale(1, 1, -1);
+    geometry.rotateY(Math.PI / 2);
     const material = new THREE.MeshBasicMaterial({
         map: texture,
         side: THREE.DoubleSide
     });
-
     const sphere = new THREE.Mesh(geometry, material);
     scene.add(sphere);
 }
@@ -170,14 +169,13 @@ function buildPlaneFilm() {
     });
 
     filmMesh = new THREE.Mesh(geometry, material);
-
-    // Place film in front of pinhole
     filmMesh.position.set(params.dx, params.dy, params.dz);
 
     scene.add(filmMesh);
 }
 
 function buildCylinderFilm() {
+
     const geometry = new THREE.CylinderGeometry(
         params.radius,
         params.radius,
@@ -220,7 +218,8 @@ function rebuildFilm() {
     }
 
     updateFilmTransform();
-    buildRays(100); // lower number = more rays
+    buildFlatView();
+    // buildRays(100); // lower number = more rays
 }
 
 
@@ -313,6 +312,111 @@ const axes = new THREE.AxesHelper(2);
 scene.add(axes);
 
 // ----------------------------------------------------
+// Flat (unwrapped) view
+// ----------------------------------------------------
+//
+// A separate overlay panel that shows the film "developed" flat: the
+// curved/tilted film surface is laid out using its UV parameterisation,
+// while each vertex still samples the environment along the ray from the
+// pinhole (origin) to its real world-space position. So it's the same
+// projection as the in-scene film, just flattened into a 2D image.
+
+const flatRenderer = new THREE.WebGLRenderer({ antialias: true });
+flatRenderer.domElement.id = "flatView";
+document.body.appendChild(flatRenderer.domElement);
+
+const flatScene = new THREE.Scene();
+const flatCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
+flatCamera.position.z = 1;
+
+let flatMesh = null;
+
+// Lays vertices out flat from UVs; keeps the real film point for sampling.
+const flatVertexShader = `
+attribute vec3 aFilmPos;
+varying vec3 vWorldPos;
+
+void main() {
+    vWorldPos = aFilmPos;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}
+`;
+
+function buildFlatView() {
+    if (!filmMesh || !envTex) return;
+
+    if (flatMesh) {
+        flatScene.remove(flatMesh);
+        flatMesh.geometry.dispose();
+        flatMesh.material.dispose();
+        flatMesh = null;
+    }
+
+    filmMesh.updateMatrixWorld(true);
+
+    const srcGeom = filmMesh.geometry;
+    const posAttr = srcGeom.attributes.position;
+    const uvAttr = srcGeom.attributes.uv;
+
+    // physical extents of the unwrapped film (used for aspect / framing)
+    let physW, physH;
+    if (params.filmType === FilmType.PLANE) {
+        physW = params.filmWidth;
+        physH = params.filmHeight;
+    } else {
+        physW = params.radius * params.thetaLength; // arc length
+        physH = params.cylinderHeight;
+    }
+
+    const flatPos = new Float32Array(posAttr.count * 3);
+    const filmPos = new Float32Array(posAttr.count * 3);
+    const v = new THREE.Vector3();
+
+    for (let i = 0; i < posAttr.count; i++) {
+        // real world-space film point -> ray direction for env sampling
+        v.fromBufferAttribute(posAttr, i);
+        filmMesh.localToWorld(v);
+        filmPos[i * 3] = v.x;
+        filmPos[i * 3 + 1] = v.y;
+        filmPos[i * 3 + 2] = v.z;
+
+        // flat layout straight from the surface UVs
+        const u = uvAttr.getX(i);
+        const w = uvAttr.getY(i);
+        flatPos[i * 3] = (u - 0.5) * physW;
+        flatPos[i * 3 + 1] = (w - 0.5) * physH;
+        flatPos[i * 3 + 2] = 0;
+    }
+
+    const geom = new THREE.BufferGeometry();
+    geom.setAttribute("position", new THREE.BufferAttribute(flatPos, 3));
+    geom.setAttribute("aFilmPos", new THREE.BufferAttribute(filmPos, 3));
+    if (srcGeom.index) geom.setIndex(srcGeom.index.clone());
+
+    const material = new THREE.ShaderMaterial({
+        uniforms,
+        vertexShader: flatVertexShader,
+        fragmentShader, // same environment sampling as the in-scene film
+        side: THREE.DoubleSide
+    });
+
+    flatMesh = new THREE.Mesh(geom, material);
+    flatScene.add(flatMesh);
+
+    // frame the ortho camera to the unwrapped extents
+    flatCamera.left = -physW / 2;
+    flatCamera.right = physW / 2;
+    flatCamera.top = physH / 2;
+    flatCamera.bottom = -physH / 2;
+    flatCamera.updateProjectionMatrix();
+
+    // size the panel to the film aspect ratio
+    const panelW = 360;
+    const panelH = Math.max(1, Math.round((panelW * physH) / physW));
+    flatRenderer.setSize(panelW, panelH);
+}
+
+// ----------------------------------------------------
 // Init
 // ----------------------------------------------------
 
@@ -327,10 +431,12 @@ window.addEventListener("resize", () => {
 // ----------------------------------------------------
 // Render Loop
 // ----------------------------------------------------
-
+let animation;
 function animate() {
-    requestAnimationFrame(animate);
+
     renderer.render(scene, camera);
+    if (flatMesh) flatRenderer.render(flatScene, flatCamera);
+    animation = requestAnimationFrame(animate);
 }
 
 animate();
