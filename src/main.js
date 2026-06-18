@@ -2,401 +2,441 @@ import * as THREE from 'https://esm.sh/three@0.160.0';
 import { OrbitControls } from 'https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js';
 import GUI from 'https://esm.sh/lil-gui@0.19';
 
-const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+// ----------------------------------------------------
+// Basic Three Setup
+// ----------------------------------------------------
+
+const scene = new THREE.Scene();
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setScissorTest(true);
 document.body.appendChild(renderer.domElement);
 
-// ==========================
-// Scene 1 (3D Geometry View)
-// ==========================
-
-const sceneView = new THREE.Scene();
-sceneView.background = new THREE.Color(0x111111);
-
-const cameraView = new THREE.PerspectiveCamera(
-    75,
-    window.innerWidth / (window.innerHeight * 0.6),
-    0.01,
+const camera = new THREE.PerspectiveCamera(
+    60,
+    window.innerWidth / window.innerHeight,
+    0.1,
     1000
 );
+camera.position.set(0, 0, 5);
 
-cameraView.position.set(0, 0, 0.001);
+const controls = new OrbitControls(camera, renderer.domElement);
 
-const controls = new OrbitControls(cameraView, renderer.domElement);
-controls.enableZoom = false;
-controls.enablePan = false;
-controls.minDistance = 0.001;
-controls.maxDistance = 0.001;
+// ----------------------------------------------------
+// Parameters
+// ----------------------------------------------------
 
-const sphereGeo = new THREE.SphereGeometry(20, 64, 64);
-sphereGeo.scale(-1, 1, 1);
-const sphereMat = new THREE.MeshBasicMaterial();
-const sphere = new THREE.Mesh(sphereGeo, sphereMat);
-sceneView.add(sphere);
-
-// ==========================
-// Scene 3 (Geometry / Free View)
-// ==========================
-
-const sceneGeometry = new THREE.Scene();
-
-const cameraFree = new THREE.PerspectiveCamera(60, (window.innerWidth / 2) / (window.innerHeight / 2), 0.01, 1000);
-cameraFree.position.set(100, 100, 100);
-
-const controlsFree = new OrbitControls(cameraFree, renderer.domElement);
-controlsFree.target.set(0, 0, 1);
-controlsFree.update();
-
-const geometryOrientationGroup = new THREE.Group();
-sceneGeometry.add(geometryOrientationGroup);
-
-// Small sphere to mark the pinhole origin
-const originMarker = new THREE.Mesh(
-    new THREE.SphereGeometry(0.5, 16, 16),
-    new THREE.MeshBasicMaterial({ color: 0xff4444 })
-);
-sceneGeometry.add(originMarker);
-
-// Share the same panorama as a background in sceneGeometry
-const sphereGeometry2 = new THREE.SphereGeometry(200, 64, 64);
-sphereGeometry2.scale(-1, 1, 1);
-const sphere2 = new THREE.Mesh(sphereGeometry2, sphereMat);
-sceneGeometry.add(sphere2);
-
-// Cylinder visualization
-let cylinderMesh;
-
-function createCylinder(radius, length, offset) {
-    if (cylinderMesh) sceneGeometry.remove(cylinderMesh);
-    const geo = new THREE.CylinderGeometry(radius, radius, length, 64, 1, true);
-    geo.translate(0, offset + length / 2, 0);
-    geo.rotateX(Math.PI / 2);
-    const mat = new THREE.MeshBasicMaterial({
-        color: 0x00ffff,
-        wireframe: true,
-        transparent: true,
-        opacity: 0.4
-    });
-    cylinderMesh = new THREE.Mesh(geo, mat);
-    geometryOrientationGroup.add(cylinderMesh);
-}
-
-let rayGroup = new THREE.Group();
-geometryOrientationGroup.add(rayGroup);
-
-function updateRays() {
-
-    rayGroup.clear();
-
-    if (!params.showRays) return;
-
-    const samples = 8;
-
-    for (let i = 0; i < samples; i++) {
-        for (let j = 0; j < samples; j++) {
-
-            const u = i / (samples - 1);
-            const v = j / (samples - 1);
-
-            const theta = u * 2 * Math.PI;
-            const h = v * params.length;
-
-            const P = new THREE.Vector3(
-                params.radius * Math.cos(theta),
-                params.radius * Math.sin(theta),
-                params.offset + h
-            );
-
-            const dir = P.clone().normalize();
-
-            const opposite = dir.clone().multiplyScalar(-300);
-
-            const geometry = new THREE.BufferGeometry().setFromPoints([
-                opposite,
-                P
-            ]);
-
-            const line = new THREE.Line(
-                geometry,
-                new THREE.LineBasicMaterial({ color: 0xffff00 })
-            );
-
-            rayGroup.add(line);
-        }
-    }
-}
-
-
-// ==========================
-// Scene 2 (Unwrapped)
-// ==========================
-
-const sceneCylinder = new THREE.Scene();
-const cameraOrtho = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-
-const vertexShader = `
-varying vec2 vUv;
-void main(){
-    vUv = uv;
-    gl_Position = vec4(position.xy, 0., 1.);
-}
-`;
-
-const fragmentShader = `
-precision highp float;
-
-uniform sampler2D envTex;
-uniform mat3 cameraRotation;
-uniform float radius;
-uniform float length;
-uniform float offset;
-uniform float cutOffset;
-uniform bool mirror;
-uniform bool showGrid;
-
-varying vec2 vUv;
-
-const float PI = 3.14159265359;
-
-void main() {
-
-    float xCoord = mirror ? (1.0 - vUv.x) : vUv.x;
-    float theta = fract(xCoord + cutOffset) * 2.0 * PI;
-    float h = vUv.y * length;
-
-    vec3 P = vec3(
-        radius * cos(theta),
-        radius * sin(theta),
-        offset + h
-    );
-
-    vec3 dir = normalize(cameraRotation * P);
-
-    float lon = atan(dir.z, dir.x);
-    float lat = asin(dir.y);
-
-    float u = lon / (2.0 * PI) + 0.5;
-    float v = 1.0 - (lat / PI + 0.5);
-
-    vec3 color = texture2D(envTex, vec2(u, v)).rgb;
-
-    if (showGrid) {
-        float gridLon = abs(fract(lon / (PI / 12.0)) - 0.5);
-        float gridLat = abs(fract(lat / (PI / 12.0)) - 0.5);
-        float line = step(gridLon, 0.02) + step(gridLat, 0.02);
-        color = mix(color, vec3(1.0, 0.0, 0.0), line);
-    }
-
-    gl_FragColor = vec4(color, 1.0);
-}
-`;
-
-const quad = new THREE.Mesh(
-    new THREE.PlaneGeometry(2, 2),
-    new THREE.ShaderMaterial({
-        uniforms: {
-            envTex: { value: null },
-            cameraRotation: { value: new THREE.Matrix3() },
-            radius: { value: 1 },
-            length: { value: 2 },
-            offset: { value: 0.5 },
-            cutOffset: { value: 0 },
-            mirror: { value: false },
-            showGrid: { value: false }
-        },
-        vertexShader,
-        fragmentShader
-    })
-);
-
-sceneCylinder.add(quad);
-
-// ==========================
-// GUI
-// ==========================
-
-const params = {
-    radius: 10,
-    length: 10,
-    offset: 0.5,
-    cutOffset: 0,
-    mirror: false,
-    freeView: false,
-    showGrid: false,
-    showRays: false
+const FilmType = {
+    PLANE: "plane",
+    CYLINDER: "cylinder"
 };
 
-const gui = new GUI();
+const params = {
+    filmType: FilmType.PLANE,
 
-gui.add(params, 'radius', 10, 100).onChange(updateAll);
-gui.add(params, 'length', 10, 100).onChange(updateAll);
-gui.add(params, 'offset', 0, 50).onChange(updateAll);
-gui.add(params, 'cutOffset', 0, 1).onChange(v => quad.material.uniforms.cutOffset.value = v);
-gui.add(params, 'mirror').onChange(v => quad.material.uniforms.mirror.value = v);
-gui.add(params, 'freeView').onChange(toggleFreeView);
-gui.add(params, 'showGrid').onChange(v => quad.material.uniforms.showGrid.value = v);
-gui.add({ measure: computeAngularResolution }, 'measure');
-gui.add({ exportPNG: exportImage }, 'exportPNG');
-gui.add(params, 'showRays').onChange(updateRays);
+    // plane params
+    filmWidth: 2,
+    filmHeight: 1.5,
+    filmDistance: 2,
 
-function updateAll() {
-    quad.material.uniforms.radius.value = params.radius;
-    quad.material.uniforms.length.value = params.length;
-    quad.material.uniforms.offset.value = params.offset;
-    createCylinder(params.radius, params.length, params.offset);
-    updateRays();
-}
-updateAll();
+    // cylinder params
+    radius: 2,
+    thetaStart: -Math.PI / 2,
+    thetaLength: Math.PI,
+    cylinderHeight: 1.5,
 
-function toggleFreeView() {
-    // Reset the free camera to a sensible position when enabling
-    if (params.freeView) {
-        // cameraFree.position.set(5, 3, 5);
-        // controlsFree.target.set(0, 0, params.offset + params.length / 2);
-        // controlsFree.update();
-        controls.enablePan = false;
-        controls.enableRotate = false;
-        controlsFree.enablePan = true;
-        controlsFree.enableRotate = true;
-    } else {
-        controls.enablePan = true;
-        controls.enableRotate = true;
-        controlsFree.enablePan = false;
-        controlsFree.enableRotate = false;
-    }
-}
+    // tilt
+    rotX: 0,
+    rotY: 0,
+    rotZ: 0,
 
-function exportImage() {
+    // offset
+    dx: 0,
+    dy: 0,
+    dz: 0
+};
 
-    const w = renderer.domElement.width;
-    const h = renderer.domElement.height;
+let filmMesh = null;
 
-    const canvas = document.createElement("canvas");
-    canvas.width = w;
-    canvas.height = h;
-    const ctx = canvas.getContext("2d");
+// ----------------------------------------------------
+// Environment Texture
+// ----------------------------------------------------
 
-    // Crop just the bottom panel from the WebGL canvas.
-    // Canvas Y=0 is top; the bottom panel sits at the top of the WebGL canvas
-    // because Three.js renders it last into viewport y=0 (WebGL bottom = canvas top after flip).
-    ctx.drawImage(
-        renderer.domElement,
-        0, 0,            // source x, y
-        w, h, // source width, height
-        0, 0,            // destination x, y
-        w, h  // destination width, height
-    );
+let envTex = null;
 
-    const link = document.createElement("a");
-    link.download = "cylinder_projection.png";
-    link.href = canvas.toDataURL();
-    link.click();
-}
+console.log("huhu")
+const textureLoader = new THREE.TextureLoader();
+textureLoader.load("./equi.jpg", (tex) => {
+    console.log("haha")
+    tex.wrapS = THREE.RepeatWrapping;
+    tex.wrapT = THREE.ClampToEdgeWrapping;
+    tex.minFilter = THREE.LinearFilter;
 
-function computeAngularResolution() {
+    envTex = tex;
+    uniforms.envTex.value = envTex;
 
-    const r = params.radius;
-    const d = params.offset;
-
-    const anglePerCircumference = 360;
-    const circumference = 2 * Math.PI * r;
-
-    const degPerUnit = anglePerCircumference / circumference;
-
-    const verticalAngle = Math.atan(params.length / d) * (180 / Math.PI);
-
-    console.log("Horizontal deg per world unit:", degPerUnit.toFixed(3));
-    console.log("Approx vertical FOV:", verticalAngle.toFixed(2), "deg");
-}
-
-// ==========================
-// Texture Loading
-// ==========================
-
-const loader = new THREE.TextureLoader();
+    buildEnvironmentSphere(tex);
+    rebuildFilm();   // build film (and flat view) only after texture ready
+});
 
 document.getElementById('fileInput').addEventListener('change', e => {
     const file = e.target.files[0];
     if (!file) return;
     const url = URL.createObjectURL(file);
-    loader.load(url, tex => {
-        tex.colorSpace = THREE.SRGBColorSpace;
+    textureLoader.load(url, tex => {
         tex.wrapS = THREE.RepeatWrapping;
-        sphereMat.map = tex;
-        sphereMat.needsUpdate = true;
-        quad.material.uniforms.envTex.value = tex;
+        tex.wrapT = THREE.ClampToEdgeWrapping;
+        tex.minFilter = THREE.LinearFilter;
+
+        envTex = tex;
+        uniforms.envTex.value = envTex;
+
+        buildEnvironmentSphere(tex);
+        rebuildFilm();   // build film (and flat view) only after texture ready
     });
 });
 
-// ==========================
-// Resize
-// ==========================
+// ----------------------------------------------------
+// Shader
+// ----------------------------------------------------
 
-window.addEventListener('resize', () => {
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    // Aspect ratios are recalculated each frame in the render loop
-});
+const vertexShader = `
+varying vec3 vWorldPos;
 
-// ==========================
-// Render Loop
-// ==========================
+void main() {
+    vec4 world = modelMatrix * vec4(position, 1.0);
+    vWorldPos = world.xyz;
+    gl_Position = projectionMatrix * viewMatrix * world;
+}
+`;
 
-function render() {
-    requestAnimationFrame(render);
+const fragmentShader = `
+uniform sampler2D envTex;
+varying vec3 vWorldPos;
 
-    controls.update();
-    controlsFree.update();
+const float PI = 3.14159265359;
 
-    cameraView.updateMatrixWorld();
-    geometryOrientationGroup.quaternion.copy(cameraView.quaternion);
-    const rot = new THREE.Matrix3().setFromMatrix4(cameraView.matrixWorld);
-    quad.material.uniforms.cameraRotation.value = rot;
+void main() {
 
-    const w = window.innerWidth;
-    const h = window.innerHeight;
+    // ray from pinhole (origin) to film surface
+    vec3 dir = normalize(vWorldPos);
 
-    if (params.freeView) {
-        // Top half split vertically: left = panorama, right = geometry
-        const topH = Math.floor(h * 0.6);
-        const bottomH = h - topH;
-        const halfW = Math.floor(w / 2);
+    float lon = atan(dir.x, dir.z);
+    float lat = asin(dir.y);
 
-        // Top-left: panorama view
-        renderer.setViewport(0, bottomH, halfW, topH);
-        renderer.setScissor(0, bottomH, halfW, topH);
-        cameraView.aspect = halfW / topH;
-        cameraView.updateProjectionMatrix();
-        renderer.render(sceneView, cameraView);
+    float u = 1.0 - (lon / (2.0 * PI) + 0.5);
+    float v = 1.0 - (lat / PI + 0.5);
 
-        // Top-right: geometry / free view
-        renderer.setViewport(halfW, bottomH, halfW, topH);
-        renderer.setScissor(halfW, bottomH, halfW, topH);
-        cameraFree.aspect = halfW / topH;
-        cameraFree.updateProjectionMatrix();
-        renderer.render(sceneGeometry, cameraFree);
+    vec3 color = texture2D(envTex, vec2(u, v)).rgb;
 
-        // Bottom: unwrapped film (full width)
-        renderer.setViewport(0, 0, w, bottomH);
-        renderer.setScissor(0, 0, w, bottomH);
-        renderer.render(sceneCylinder, cameraOrtho);
+    gl_FragColor = vec4(color, 1.0);
+}
+`;
 
-    } else {
-        // Two panels: top 60% panorama, bottom 40% film
-        const topH = Math.floor(h * 0.6);
-        const bottomH = h - topH;
+const uniforms = {
+    envTex: { value: envTex }
+};
 
-        cameraView.aspect = w / topH;
-        cameraView.updateProjectionMatrix();
+// ----------------------------------------------------
+// Film Builders
+// ----------------------------------------------------
 
-        renderer.setViewport(0, bottomH, w, topH);
-        renderer.setScissor(0, bottomH, w, topH);
-        renderer.render(sceneView, cameraView);
-
-        renderer.setViewport(0, 0, w, bottomH);
-        renderer.setScissor(0, 0, w, bottomH);
-        renderer.render(sceneCylinder, cameraOrtho);
-    }
+function buildEnvironmentSphere(texture) {
+    const geometry = new THREE.SphereGeometry(100, 64, 64);
+    geometry.scale(1, 1, -1);
+    geometry.rotateY(Math.PI / 2);
+    const material = new THREE.MeshBasicMaterial({
+        map: texture,
+        side: THREE.DoubleSide
+    });
+    const sphere = new THREE.Mesh(geometry, material);
+    scene.add(sphere);
 }
 
-render();
+function buildPlaneFilm() {
+    const geometry = new THREE.PlaneGeometry(
+        params.filmWidth,
+        params.filmHeight,
+        128,
+        128
+    );
+
+    const material = new THREE.ShaderMaterial({
+        uniforms,
+        vertexShader,
+        fragmentShader,
+        side: THREE.DoubleSide
+    });
+
+    filmMesh = new THREE.Mesh(geometry, material);
+    filmMesh.position.set(params.dx, params.dy, params.dz);
+
+    scene.add(filmMesh);
+}
+
+function buildCylinderFilm() {
+
+    const geometry = new THREE.CylinderGeometry(
+        params.radius,
+        params.radius,
+        params.cylinderHeight,
+        256,
+        1,
+        true,
+        params.thetaStart,
+        params.thetaLength
+    );
+    geometry.translate(params.dx, params.dy + params.cylinderHeight / 2, params.dz);
+
+    const material = new THREE.ShaderMaterial({
+        uniforms,
+        vertexShader,
+        fragmentShader,
+        side: THREE.DoubleSide
+    });
+
+    filmMesh = new THREE.Mesh(geometry, material);
+
+    // Rotate so cylinder wraps around Z axis
+    filmMesh.rotation.x = Math.PI / 2;
+
+    scene.add(filmMesh);
+}
+
+function rebuildFilm() {
+    if (filmMesh) {
+        scene.remove(filmMesh);
+        filmMesh.geometry.dispose();
+        filmMesh.material.dispose();
+        filmMesh = null;
+    }
+
+    if (params.filmType === FilmType.PLANE) {
+        buildPlaneFilm();
+    } else {
+        buildCylinderFilm();
+    }
+
+    updateFilmTransform();
+    buildFlatView();
+    // buildRays(100); // lower number = more rays
+}
+
+
+let rayLines = null;
+
+function buildRays(sampleStep = 10) {
+
+    if (!filmMesh) return;
+
+    if (rayLines) {
+        scene.remove(rayLines);
+        rayLines.geometry.dispose();
+    }
+
+    const positions = [];
+
+    const geom = filmMesh.geometry;
+    const posAttr = geom.attributes.position;
+
+    const tempVec = new THREE.Vector3();
+
+    for (let i = 0; i < posAttr.count; i += sampleStep) {
+
+        tempVec.fromBufferAttribute(posAttr, i);
+
+        // convert to world space
+        filmMesh.localToWorld(tempVec);
+
+        // origin
+        positions.push(0, 0, 0);
+
+        // film point
+        positions.push(tempVec.x, tempVec.y, tempVec.z);
+    }
+
+    const rayGeometry = new THREE.BufferGeometry();
+    rayGeometry.setAttribute(
+        "position",
+        new THREE.Float32BufferAttribute(positions, 3)
+    );
+
+    const rayMaterial = new THREE.LineBasicMaterial({
+        color: 0xffaa00
+    });
+
+    rayLines = new THREE.LineSegments(rayGeometry, rayMaterial);
+    scene.add(rayLines);
+}
+
+
+function updateFilmTransform() {
+    if (!filmMesh) return;
+
+    filmMesh.rotation.x += params.rotX;
+    filmMesh.rotation.y += params.rotY;
+    filmMesh.rotation.z += params.rotZ;
+}
+
+// ----------------------------------------------------
+// GUI
+// ----------------------------------------------------
+
+const gui = new GUI();
+
+gui.add(params, "filmType", Object.values(FilmType))
+    .onChange(rebuildFilm);
+
+gui.add(params, "filmWidth", 0.1, 5).onChange(rebuildFilm);
+gui.add(params, "filmHeight", 0.1, 5).onChange(rebuildFilm);
+gui.add(params, "filmDistance", 0.1, 10).onChange(rebuildFilm);
+
+gui.add(params, "radius", 0.5, 10).onChange(rebuildFilm);
+gui.add(params, "thetaStart", -Math.PI, Math.PI).onChange(rebuildFilm);
+gui.add(params, "thetaLength", 0.1, 2 * Math.PI).onChange(rebuildFilm);
+gui.add(params, "cylinderHeight", 0.1, 5).onChange(rebuildFilm);
+
+gui.add(params, "rotX", -Math.PI, Math.PI).onChange(rebuildFilm);
+gui.add(params, "rotY", -Math.PI, Math.PI).onChange(rebuildFilm);
+gui.add(params, "rotZ", -Math.PI, Math.PI).onChange(rebuildFilm);
+
+gui.add(params, "dx", -10, 10).onChange(rebuildFilm);
+gui.add(params, "dy", -10, 10).onChange(rebuildFilm);
+gui.add(params, "dz", -10, 10).onChange(rebuildFilm);
+
+// ----------------------------------------------------
+// Helpers
+// ----------------------------------------------------
+
+const axes = new THREE.AxesHelper(2);
+scene.add(axes);
+
+// ----------------------------------------------------
+// Flat (unwrapped) view
+// ----------------------------------------------------
+//
+// A separate overlay panel that shows the film "developed" flat: the
+// curved/tilted film surface is laid out using its UV parameterisation,
+// while each vertex still samples the environment along the ray from the
+// pinhole (origin) to its real world-space position. So it's the same
+// projection as the in-scene film, just flattened into a 2D image.
+
+const flatRenderer = new THREE.WebGLRenderer({ antialias: true });
+flatRenderer.domElement.id = "flatView";
+document.body.appendChild(flatRenderer.domElement);
+
+const flatScene = new THREE.Scene();
+const flatCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
+flatCamera.position.z = 1;
+
+let flatMesh = null;
+
+// Lays vertices out flat from UVs; keeps the real film point for sampling.
+const flatVertexShader = `
+attribute vec3 aFilmPos;
+varying vec3 vWorldPos;
+
+void main() {
+    vWorldPos = aFilmPos;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}
+`;
+
+function buildFlatView() {
+    if (!filmMesh || !envTex) return;
+
+    if (flatMesh) {
+        flatScene.remove(flatMesh);
+        flatMesh.geometry.dispose();
+        flatMesh.material.dispose();
+        flatMesh = null;
+    }
+
+    filmMesh.updateMatrixWorld(true);
+
+    const srcGeom = filmMesh.geometry;
+    const posAttr = srcGeom.attributes.position;
+    const uvAttr = srcGeom.attributes.uv;
+
+    // physical extents of the unwrapped film (used for aspect / framing)
+    let physW, physH;
+    if (params.filmType === FilmType.PLANE) {
+        physW = params.filmWidth;
+        physH = params.filmHeight;
+    } else {
+        physW = params.radius * params.thetaLength; // arc length
+        physH = params.cylinderHeight;
+    }
+
+    const flatPos = new Float32Array(posAttr.count * 3);
+    const filmPos = new Float32Array(posAttr.count * 3);
+    const v = new THREE.Vector3();
+
+    for (let i = 0; i < posAttr.count; i++) {
+        // real world-space film point -> ray direction for env sampling
+        v.fromBufferAttribute(posAttr, i);
+        filmMesh.localToWorld(v);
+        filmPos[i * 3] = v.x;
+        filmPos[i * 3 + 1] = v.y;
+        filmPos[i * 3 + 2] = v.z;
+
+        // flat layout straight from the surface UVs
+        const u = uvAttr.getX(i);
+        const w = uvAttr.getY(i);
+        flatPos[i * 3] = (u - 0.5) * physW;
+        flatPos[i * 3 + 1] = (w - 0.5) * physH;
+        flatPos[i * 3 + 2] = 0;
+    }
+
+    const geom = new THREE.BufferGeometry();
+    geom.setAttribute("position", new THREE.BufferAttribute(flatPos, 3));
+    geom.setAttribute("aFilmPos", new THREE.BufferAttribute(filmPos, 3));
+    if (srcGeom.index) geom.setIndex(srcGeom.index.clone());
+
+    const material = new THREE.ShaderMaterial({
+        uniforms,
+        vertexShader: flatVertexShader,
+        fragmentShader, // same environment sampling as the in-scene film
+        side: THREE.DoubleSide
+    });
+
+    flatMesh = new THREE.Mesh(geom, material);
+    flatScene.add(flatMesh);
+
+    // frame the ortho camera to the unwrapped extents
+    flatCamera.left = -physW / 2;
+    flatCamera.right = physW / 2;
+    flatCamera.top = physH / 2;
+    flatCamera.bottom = -physH / 2;
+    flatCamera.updateProjectionMatrix();
+
+    // size the panel to the film aspect ratio
+    const panelW = 360;
+    const panelH = Math.max(1, Math.round((panelW * physH) / physW));
+    flatRenderer.setSize(panelW, panelH);
+}
+
+// ----------------------------------------------------
+// Init
+// ----------------------------------------------------
+
+rebuildFilm();
+
+window.addEventListener("resize", () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// ----------------------------------------------------
+// Render Loop
+// ----------------------------------------------------
+let animation;
+function animate() {
+
+    renderer.render(scene, camera);
+    if (flatMesh) flatRenderer.render(flatScene, flatCamera);
+    animation = requestAnimationFrame(animate);
+}
+
+animate();
