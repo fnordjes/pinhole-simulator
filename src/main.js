@@ -169,31 +169,16 @@ function buildEnvironmentSphere(texture) {
     scene.add(envSphere);
 }
 
-function buildPlaneFilm() {
-    const geometry = new THREE.PlaneGeometry(
+function buildPlaneGeometry() {
+    return new THREE.PlaneGeometry(
         params.filmWidth,
         params.filmHeight,
         128,
         128
     );
-
-    const material = new THREE.ShaderMaterial({
-        uniforms,
-        vertexShader,
-        fragmentShader,
-        side: THREE.DoubleSide
-    });
-
-    filmMesh = new THREE.Mesh(geometry, material);
-    // keep the film off the pinhole: it sits filmDistance in front of the
-    // origin (on the same +z side the cylinder extends to)
-    filmMesh.position.set(params.dx, params.dy, params.filmDistance + params.dz);
-
-    scene.add(filmMesh);
 }
 
-function buildCylinderFilm() {
-
+function buildCylinderGeometry() {
     const geometry = new THREE.CylinderGeometry(
         params.radius,
         params.radius,
@@ -204,7 +189,24 @@ function buildCylinderFilm() {
         params.thetaStart,
         params.thetaLength
     );
-    geometry.translate(params.dx, params.dy + params.cylinderHeight / 2, params.dz);
+    // start the tube at the pinhole instead of centring it there
+    geometry.translate(0, params.cylinderHeight / 2, 0);
+    return geometry;
+}
+
+// Rebuilds the film geometry. Only needed when the film type or its shape
+// changes; tilt and offset go through updateFilmTransform().
+function rebuildFilm() {
+    if (filmMesh) {
+        scene.remove(filmMesh);
+        filmMesh.geometry.dispose();
+        filmMesh.material.dispose();
+        filmMesh = null;
+    }
+
+    const geometry = params.filmType === FilmType.PLANE
+        ? buildPlaneGeometry()
+        : buildCylinderGeometry();
 
     const material = new THREE.ShaderMaterial({
         uniforms,
@@ -214,32 +216,11 @@ function buildCylinderFilm() {
     });
 
     filmMesh = new THREE.Mesh(geometry, material);
-
-    // Rotate so cylinder wraps around Z axis
-    filmMesh.rotation.x = Math.PI / 2;
-
     scene.add(filmMesh);
-}
-
-function rebuildFilm() {
-    if (filmMesh) {
-        scene.remove(filmMesh);
-        filmMesh.geometry.dispose();
-        filmMesh.material.dispose();
-        filmMesh = null;
-    }
-
-    if (params.filmType === FilmType.PLANE) {
-        buildPlaneFilm();
-    } else {
-        buildCylinderFilm();
-    }
 
     updateFilmTransform();
     buildFlatView();
-    updateRays();
 }
-
 
 let rayLines = null;
 
@@ -292,12 +273,25 @@ function updateRays() {
 }
 
 
+// Places the film from the tilt / offset params. Cheap: no geometry rebuild,
+// and the flat view follows automatically (it reads filmMesh.matrixWorld).
 function updateFilmTransform() {
     if (!filmMesh) return;
 
-    filmMesh.rotation.x += params.rotX;
-    filmMesh.rotation.y += params.rotY;
-    filmMesh.rotation.z += params.rotZ;
+    if (params.filmType === FilmType.PLANE) {
+        // tilts about its own centre, which sits filmDistance in front of
+        // the pinhole (on the same +z side the cylinder extends to)
+        filmMesh.rotation.set(params.rotX, params.rotY, params.rotZ);
+        filmMesh.position.set(params.dx, params.dy, params.filmDistance + params.dz);
+    } else {
+        // base rotation lays the cylinder axis along +z; the tilt and the
+        // offset are applied in that rotated frame, about the pinhole
+        filmMesh.rotation.set(Math.PI / 2 + params.rotX, params.rotY, params.rotZ);
+        filmMesh.position.set(params.dx, params.dy, params.dz).applyEuler(filmMesh.rotation);
+    }
+
+    filmMesh.updateMatrixWorld(true);
+    updateRays();
 }
 
 // ----------------------------------------------------
@@ -307,28 +301,44 @@ function updateFilmTransform() {
 const gui = new GUI();
 
 gui.add(params, "filmType", Object.values(FilmType))
-    .onChange(rebuildFilm);
+    .onChange(() => {
+        updateShapeFolders();
+        rebuildFilm();
+    });
 
-gui.add(params, "filmWidth", 0.1, 5).onChange(rebuildFilm);
-gui.add(params, "filmHeight", 0.1, 5).onChange(rebuildFilm);
-gui.add(params, "filmDistance", 0.1, 10).onChange(rebuildFilm);
+const planeFolder = gui.addFolder("Plane");
+planeFolder.add(params, "filmWidth", 0.1, 5).onChange(rebuildFilm);
+planeFolder.add(params, "filmHeight", 0.1, 5).onChange(rebuildFilm);
+planeFolder.add(params, "filmDistance", 0.1, 10).onChange(updateFilmTransform);
 
-gui.add(params, "radius", 0.5, 10).onChange(rebuildFilm);
-gui.add(params, "thetaStart", -Math.PI, Math.PI).onChange(rebuildFilm);
-gui.add(params, "thetaLength", 0.1, 2 * Math.PI).onChange(rebuildFilm);
-gui.add(params, "cylinderHeight", 0.1, 5).onChange(rebuildFilm);
+const cylinderFolder = gui.addFolder("Cylinder");
+cylinderFolder.add(params, "radius", 0.5, 10).onChange(rebuildFilm);
+cylinderFolder.add(params, "thetaStart", -Math.PI, Math.PI).onChange(rebuildFilm);
+cylinderFolder.add(params, "thetaLength", 0.1, 2 * Math.PI).onChange(rebuildFilm);
+cylinderFolder.add(params, "cylinderHeight", 0.1, 5).onChange(rebuildFilm);
 
-gui.add(params, "rotX", -Math.PI, Math.PI).onChange(rebuildFilm);
-gui.add(params, "rotY", -Math.PI, Math.PI).onChange(rebuildFilm);
-gui.add(params, "rotZ", -Math.PI, Math.PI).onChange(rebuildFilm);
+const tiltFolder = gui.addFolder("Tilt");
+tiltFolder.add(params, "rotX", -Math.PI, Math.PI).onChange(updateFilmTransform);
+tiltFolder.add(params, "rotY", -Math.PI, Math.PI).onChange(updateFilmTransform);
+tiltFolder.add(params, "rotZ", -Math.PI, Math.PI).onChange(updateFilmTransform);
 
-gui.add(params, "dx", -10, 10).onChange(rebuildFilm);
-gui.add(params, "dy", -10, 10).onChange(rebuildFilm);
-gui.add(params, "dz", -10, 10).onChange(rebuildFilm);
+const offsetFolder = gui.addFolder("Offset");
+offsetFolder.add(params, "dx", -10, 10).onChange(updateFilmTransform);
+offsetFolder.add(params, "dy", -10, 10).onChange(updateFilmTransform);
+offsetFolder.add(params, "dz", -10, 10).onChange(updateFilmTransform);
 
-gui.add(params, "showRays").onChange(updateRays);
-gui.add(params, "uprightFlatView").onChange(updateFlatOrientation);
-gui.add({ exportPNG: exportFlatView }, "exportPNG");
+const viewFolder = gui.addFolder("View");
+viewFolder.add(params, "showRays").onChange(updateRays);
+viewFolder.add(params, "uprightFlatView").onChange(updateFlatOrientation);
+viewFolder.add({ exportPNG: exportFlatView }, "exportPNG");
+
+// only show the shape controls for the current film type
+function updateShapeFolders() {
+    const isPlane = params.filmType === FilmType.PLANE;
+    planeFolder.show(isPlane);
+    cylinderFolder.show(!isPlane);
+}
+updateShapeFolders();
 
 // ----------------------------------------------------
 // Helpers
@@ -359,12 +369,15 @@ let flatMesh = null;
 let flatAspect = 1;   // physical width / height of the unwrapped film
 
 // Lays vertices out flat from UVs; keeps the real film point for sampling.
+// aFilmPos is the film-local point; filmMatrix (the film's matrixWorld)
+// places it, so tilting / moving the film needs no rebuild here.
 const flatVertexShader = `
 attribute vec3 aFilmPos;
+uniform mat4 filmMatrix;
 varying vec3 vWorldPos;
 
 void main() {
-    vWorldPos = aFilmPos;
+    vWorldPos = (filmMatrix * vec4(aFilmPos, 1.0)).xyz;
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
 }
 `;
@@ -378,8 +391,6 @@ function buildFlatView() {
         flatMesh.material.dispose();
         flatMesh = null;
     }
-
-    filmMesh.updateMatrixWorld(true);
 
     const srcGeom = filmMesh.geometry;
     const posAttr = srcGeom.attributes.position;
@@ -396,17 +407,8 @@ function buildFlatView() {
     }
 
     const flatPos = new Float32Array(posAttr.count * 3);
-    const filmPos = new Float32Array(posAttr.count * 3);
-    const v = new THREE.Vector3();
 
     for (let i = 0; i < posAttr.count; i++) {
-        // real world-space film point -> ray direction for env sampling
-        v.fromBufferAttribute(posAttr, i);
-        filmMesh.localToWorld(v);
-        filmPos[i * 3] = v.x;
-        filmPos[i * 3 + 1] = v.y;
-        filmPos[i * 3 + 2] = v.z;
-
         // flat layout straight from the surface UVs
         const u = uvAttr.getX(i);
         const w = uvAttr.getY(i);
@@ -417,11 +419,15 @@ function buildFlatView() {
 
     const geom = new THREE.BufferGeometry();
     geom.setAttribute("position", new THREE.BufferAttribute(flatPos, 3));
-    geom.setAttribute("aFilmPos", new THREE.BufferAttribute(filmPos, 3));
+    geom.setAttribute("aFilmPos", posAttr.clone());
     if (srcGeom.index) geom.setIndex(srcGeom.index.clone());
 
     const material = new THREE.ShaderMaterial({
-        uniforms,
+        uniforms: {
+            envTex: uniforms.envTex,
+            // same Matrix4 object, so it tracks the film's transform
+            filmMatrix: { value: filmMesh.matrixWorld }
+        },
         vertexShader: flatVertexShader,
         fragmentShader, // same environment sampling as the in-scene film
         side: THREE.DoubleSide
