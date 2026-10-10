@@ -19,6 +19,10 @@ see exactly what the camera projects onto the film — for flat **or** curved fi
   It is the same projection as the in-scene film, just flattened, and is sized to
   the film's real aspect ratio.
 
+The film samples the environment along the *incoming* light direction: light
+reaching film point P passed through the pinhole at the origin, so it came from
+direction −P. That is why the image on the film is inverted.
+
 ## Controls
 
 A GUI panel (top-right) lets you adjust:
@@ -28,6 +32,11 @@ A GUI panel (top-right) lets you adjust:
 - **Cylinder**: `radius`, `thetaStart`, `thetaLength`, `cylinderHeight`
 - **Tilt**: `rotX`, `rotY`, `rotZ`
 - **Offset**: `dx`, `dy`, `dz`
+- **showRays** — draw rays from points on the film back through the pinhole
+  into the scene
+- **uprightFlatView** — the film image is inverted (rotated 180°), as on a real
+  negative; this shows the flat view the right way up
+- **exportPNG** — save the flat view as a PNG (2048 px on the long side)
 
 Use the file picker (top-left) to load your own equirectangular (2:1) panorama;
 otherwise the bundled `equi.jpg` is used.

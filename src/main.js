@@ -53,7 +53,11 @@ const params = {
     // offset
     dx: 0,
     dy: 0,
-    dz: 0
+    dz: 0,
+
+    // view
+    showRays: false,
+    uprightFlatView: false
 };
 
 let filmMesh = null;
@@ -112,18 +116,22 @@ varying vec3 vWorldPos;
 
 const float PI = 3.14159265359;
 
+// Equirectangular UV of a world direction, matching the environment
+// sphere's mapping (see buildEnvironmentSphere), so a direction samples
+// the same texel the sphere shows there. u relies on RepeatWrapping.
+vec2 dirToEquirectUV(vec3 d) {
+    float lon = atan(d.x, d.z);
+    float lat = asin(clamp(d.y, -1.0, 1.0));
+    return vec2(-lon / (2.0 * PI), 0.5 + lat / PI);
+}
+
 void main() {
 
-    // ray from pinhole (origin) to film surface
-    vec3 dir = normalize(vWorldPos);
+    // Light reaching a film point P passed through the pinhole (origin), so
+    // it came from direction -P. This is what makes the image inverted.
+    vec3 incoming = normalize(-vWorldPos);
 
-    float lon = atan(dir.x, dir.z);
-    float lat = asin(dir.y);
-
-    float u = 1.0 - (lon / (2.0 * PI) + 0.5);
-    float v = 1.0 - (lat / PI + 0.5);
-
-    vec3 color = texture2D(envTex, vec2(u, v)).rgb;
+    vec3 color = texture2D(envTex, dirToEquirectUV(incoming)).rgb;
 
     gl_FragColor = vec4(color, 1.0);
 
@@ -229,40 +237,45 @@ function rebuildFilm() {
 
     updateFilmTransform();
     buildFlatView();
-    // buildRays(100); // lower number = more rays
+    updateRays();
 }
 
 
 let rayLines = null;
 
-function buildRays(sampleStep = 10) {
+const RAY_GRID = 8;        // rays on an 8x8 grid of the film's UV range
+const RAY_LENGTH = 99;     // just inside the environment sphere (radius 100)
 
-    if (!filmMesh) return;
-
+// Rays from sampled film points back through the pinhole out to the
+// environment, i.e. the path the light took to reach the film.
+function updateRays() {
     if (rayLines) {
         scene.remove(rayLines);
         rayLines.geometry.dispose();
+        rayLines.material.dispose();
+        rayLines = null;
     }
 
+    if (!params.showRays || !filmMesh) return;
+
+    filmMesh.updateMatrixWorld(true);
+
+    const posAttr = filmMesh.geometry.attributes.position;
+    const uvAttr = filmMesh.geometry.attributes.uv;
+    const onGrid = x => Math.abs(x * RAY_GRID - Math.round(x * RAY_GRID)) < 1e-4;
+
     const positions = [];
+    const p = new THREE.Vector3();
+    const far = new THREE.Vector3();
 
-    const geom = filmMesh.geometry;
-    const posAttr = geom.attributes.position;
+    for (let i = 0; i < posAttr.count; i++) {
+        if (!onGrid(uvAttr.getX(i)) || !onGrid(uvAttr.getY(i))) continue;
 
-    const tempVec = new THREE.Vector3();
+        p.fromBufferAttribute(posAttr, i);
+        filmMesh.localToWorld(p);
+        far.copy(p).normalize().multiplyScalar(-RAY_LENGTH);
 
-    for (let i = 0; i < posAttr.count; i += sampleStep) {
-
-        tempVec.fromBufferAttribute(posAttr, i);
-
-        // convert to world space
-        filmMesh.localToWorld(tempVec);
-
-        // origin
-        positions.push(0, 0, 0);
-
-        // film point
-        positions.push(tempVec.x, tempVec.y, tempVec.z);
+        positions.push(p.x, p.y, p.z, far.x, far.y, far.z);
     }
 
     const rayGeometry = new THREE.BufferGeometry();
@@ -271,11 +284,10 @@ function buildRays(sampleStep = 10) {
         new THREE.Float32BufferAttribute(positions, 3)
     );
 
-    const rayMaterial = new THREE.LineBasicMaterial({
-        color: 0xffaa00
-    });
-
-    rayLines = new THREE.LineSegments(rayGeometry, rayMaterial);
+    rayLines = new THREE.LineSegments(
+        rayGeometry,
+        new THREE.LineBasicMaterial({ color: 0xffaa00 })
+    );
     scene.add(rayLines);
 }
 
@@ -314,6 +326,10 @@ gui.add(params, "dx", -10, 10).onChange(rebuildFilm);
 gui.add(params, "dy", -10, 10).onChange(rebuildFilm);
 gui.add(params, "dz", -10, 10).onChange(rebuildFilm);
 
+gui.add(params, "showRays").onChange(updateRays);
+gui.add(params, "uprightFlatView").onChange(updateFlatOrientation);
+gui.add({ exportPNG: exportFlatView }, "exportPNG");
+
 // ----------------------------------------------------
 // Helpers
 // ----------------------------------------------------
@@ -340,6 +356,7 @@ const flatCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
 flatCamera.position.z = 1;
 
 let flatMesh = null;
+let flatAspect = 1;   // physical width / height of the unwrapped film
 
 // Lays vertices out flat from UVs; keeps the real film point for sampling.
 const flatVertexShader = `
@@ -421,9 +438,39 @@ function buildFlatView() {
     flatCamera.updateProjectionMatrix();
 
     // size the panel to the film aspect ratio
+    flatAspect = physW / physH;
     const panelW = 360;
-    const panelH = Math.max(1, Math.round((panelW * physH) / physW));
+    const panelH = Math.max(1, Math.round(panelW / flatAspect));
     flatRenderer.setSize(panelW, panelH);
+}
+
+// The film image is inverted (rotated 180 degrees) like a real negative.
+// "Upright" rotates the flat view's camera to show it the right way up.
+function updateFlatOrientation() {
+    flatCamera.rotation.z = params.uprightFlatView ? Math.PI : 0;
+}
+
+// Saves the flat view at a higher resolution than the on-screen panel.
+function exportFlatView() {
+    if (!flatMesh) return;
+
+    const EXPORT_LONG_SIDE = 2048;
+    const w = flatAspect >= 1 ? EXPORT_LONG_SIDE : Math.round(EXPORT_LONG_SIDE * flatAspect);
+    const h = flatAspect >= 1 ? Math.round(EXPORT_LONG_SIDE / flatAspect) : EXPORT_LONG_SIDE;
+
+    const panelSize = flatRenderer.getSize(new THREE.Vector2());
+
+    // resize the drawing buffer only (not the CSS size), render, and read
+    // back immediately: no preserveDrawingBuffer needed
+    flatRenderer.setSize(w, h, false);
+    flatRenderer.render(flatScene, flatCamera);
+    const dataURL = flatRenderer.domElement.toDataURL("image/png");
+    flatRenderer.setSize(panelSize.x, panelSize.y, false);
+
+    const link = document.createElement("a");
+    link.download = `pinhole_${params.filmType}.png`;
+    link.href = dataURL;
+    link.click();
 }
 
 // ----------------------------------------------------
