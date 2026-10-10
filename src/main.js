@@ -64,36 +64,32 @@ let filmMesh = null;
 
 let envTex = null;
 
-console.log("huhu")
 const textureLoader = new THREE.TextureLoader();
-textureLoader.load("./equi.jpg", (tex) => {
-    console.log("haha")
-    tex.wrapS = THREE.RepeatWrapping;
-    tex.wrapT = THREE.ClampToEdgeWrapping;
-    tex.minFilter = THREE.LinearFilter;
 
-    envTex = tex;
-    uniforms.envTex.value = envTex;
-
-    buildEnvironmentSphere(tex);
-    rebuildFilm();   // build film (and flat view) only after texture ready
-});
-
-document.getElementById('fileInput').addEventListener('change', e => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const url = URL.createObjectURL(file);
+function loadPanorama(url, onLoaded) {
     textureLoader.load(url, tex => {
+        tex.colorSpace = THREE.SRGBColorSpace;
         tex.wrapS = THREE.RepeatWrapping;
         tex.wrapT = THREE.ClampToEdgeWrapping;
         tex.minFilter = THREE.LinearFilter;
 
+        if (envTex) envTex.dispose();
         envTex = tex;
         uniforms.envTex.value = envTex;
 
         buildEnvironmentSphere(tex);
         rebuildFilm();   // build film (and flat view) only after texture ready
+        if (onLoaded) onLoaded();
     });
+}
+
+loadPanorama("./equi.jpg");
+
+document.getElementById('fileInput').addEventListener('change', e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const url = URL.createObjectURL(file);
+    loadPanorama(url, () => URL.revokeObjectURL(url));
 });
 
 // ----------------------------------------------------
@@ -130,6 +126,9 @@ void main() {
     vec3 color = texture2D(envTex, vec2(u, v)).rgb;
 
     gl_FragColor = vec4(color, 1.0);
+
+    // convert linear -> output color space, like the built-in materials do
+    #include <colorspace_fragment>
 }
 `;
 
@@ -141,7 +140,16 @@ const uniforms = {
 // Film Builders
 // ----------------------------------------------------
 
+let envSphere = null;
+
 function buildEnvironmentSphere(texture) {
+    if (envSphere) {
+        scene.remove(envSphere);
+        envSphere.geometry.dispose();
+        envSphere.material.dispose();
+        envSphere = null;
+    }
+
     const geometry = new THREE.SphereGeometry(100, 64, 64);
     geometry.scale(1, 1, -1);
     geometry.rotateY(Math.PI / 2);
@@ -149,8 +157,8 @@ function buildEnvironmentSphere(texture) {
         map: texture,
         side: THREE.DoubleSide
     });
-    const sphere = new THREE.Mesh(geometry, material);
-    scene.add(sphere);
+    envSphere = new THREE.Mesh(geometry, material);
+    scene.add(envSphere);
 }
 
 function buildPlaneFilm() {
@@ -169,7 +177,9 @@ function buildPlaneFilm() {
     });
 
     filmMesh = new THREE.Mesh(geometry, material);
-    filmMesh.position.set(params.dx, params.dy, params.dz);
+    // keep the film off the pinhole: it sits filmDistance in front of the
+    // origin (on the same +z side the cylinder extends to)
+    filmMesh.position.set(params.dx, params.dy, params.filmDistance + params.dz);
 
     scene.add(filmMesh);
 }
