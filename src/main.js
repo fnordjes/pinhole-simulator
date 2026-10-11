@@ -1,6 +1,6 @@
-import * as THREE from 'https://esm.sh/three@0.160.0';
-import { OrbitControls } from 'https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js';
-import GUI from 'https://esm.sh/lil-gui@0.19';
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import GUI from 'lil-gui';
 
 // ----------------------------------------------------
 // Basic Three Setup
@@ -357,11 +357,18 @@ scene.add(axes);
 // pinhole (origin) to its real world-space position. So it's the same
 // projection as the in-scene film, just flattened into a 2D image.
 
-const flatRenderer = new THREE.WebGLRenderer({ antialias: true });
-flatRenderer.domElement.id = "flatView";
-document.body.appendChild(flatRenderer.domElement);
+// Drawn by the main renderer into a scissored corner of the canvas (so the
+// panorama texture lives in one WebGL context); this div is just its frame.
+const flatFrame = document.createElement("div");
+flatFrame.id = "flatViewFrame";
+document.body.appendChild(flatFrame);
+
+const FLAT_PANEL_MAX = 360;    // longest side of the panel, CSS px
+const FLAT_PANEL_MARGIN = 10;
+const flatPanel = { width: FLAT_PANEL_MAX, height: FLAT_PANEL_MAX };
 
 const flatScene = new THREE.Scene();
+flatScene.background = new THREE.Color(0x000000);
 const flatCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
 flatCamera.position.z = 1;
 
@@ -435,6 +442,7 @@ function buildFlatView() {
 
     flatMesh = new THREE.Mesh(geom, material);
     flatScene.add(flatMesh);
+    flatFrame.style.display = "block";
 
     // frame the ortho camera to the unwrapped extents
     flatCamera.left = -physW / 2;
@@ -443,11 +451,20 @@ function buildFlatView() {
     flatCamera.bottom = -physH / 2;
     flatCamera.updateProjectionMatrix();
 
-    // size the panel to the film aspect ratio
+    // size the panel to the film aspect ratio, longest side FLAT_PANEL_MAX
     flatAspect = physW / physH;
-    const panelW = 360;
-    const panelH = Math.max(1, Math.round(panelW / flatAspect));
-    flatRenderer.setSize(panelW, panelH);
+    const [w, h] = fitLongSide(flatAspect, FLAT_PANEL_MAX);
+    flatPanel.width = w;
+    flatPanel.height = h;
+    flatFrame.style.width = `${w}px`;
+    flatFrame.style.height = `${h}px`;
+}
+
+// width / height in whole pixels for an aspect ratio, longest side = size
+function fitLongSide(aspect, size) {
+    return aspect >= 1
+        ? [size, Math.max(1, Math.round(size / aspect))]
+        : [Math.max(1, Math.round(size * aspect)), size];
 }
 
 // The film image is inverted (rotated 180 degrees) like a real negative.
@@ -460,18 +477,18 @@ function updateFlatOrientation() {
 function exportFlatView() {
     if (!flatMesh) return;
 
-    const EXPORT_LONG_SIDE = 2048;
-    const w = flatAspect >= 1 ? EXPORT_LONG_SIDE : Math.round(EXPORT_LONG_SIDE * flatAspect);
-    const h = flatAspect >= 1 ? Math.round(EXPORT_LONG_SIDE / flatAspect) : EXPORT_LONG_SIDE;
+    const [w, h] = fitLongSide(flatAspect, 2048);
 
-    const panelSize = flatRenderer.getSize(new THREE.Vector2());
-
-    // resize the drawing buffer only (not the CSS size), render, and read
-    // back immediately: no preserveDrawingBuffer needed
-    flatRenderer.setSize(w, h, false);
-    flatRenderer.render(flatScene, flatCamera);
-    const dataURL = flatRenderer.domElement.toDataURL("image/png");
-    flatRenderer.setSize(panelSize.x, panelSize.y, false);
+    // temporarily resize the drawing buffer only (not the CSS size), render
+    // just the flat view, and read back immediately: no
+    // preserveDrawingBuffer needed. Then restore and redraw before the
+    // browser shows the canvas, so nothing flickers.
+    renderer.setSize(w, h, false);
+    renderer.setScissorTest(false);
+    renderer.render(flatScene, flatCamera);
+    const dataURL = renderer.domElement.toDataURL("image/png");
+    renderer.setSize(window.innerWidth, window.innerHeight, false);
+    renderFrame();
 
     const link = document.createElement("a");
     link.download = `pinhole_${params.filmType}.png`;
@@ -484,6 +501,7 @@ function exportFlatView() {
 // ----------------------------------------------------
 
 rebuildFilm();
+updateFlatOrientation();
 
 window.addEventListener("resize", () => {
     camera.aspect = window.innerWidth / window.innerHeight;
@@ -494,12 +512,29 @@ window.addEventListener("resize", () => {
 // ----------------------------------------------------
 // Render Loop
 // ----------------------------------------------------
-let animation;
-function animate() {
+function renderFrame() {
+    const width = window.innerWidth;
+    const height = window.innerHeight;
 
+    renderer.setScissorTest(false);
+    renderer.setViewport(0, 0, width, height);
     renderer.render(scene, camera);
-    if (flatMesh) flatRenderer.render(flatScene, flatCamera);
-    animation = requestAnimationFrame(animate);
+
+    if (flatMesh) {
+        // viewport / scissor origin is bottom-left; panel sits bottom-right
+        const x = width - FLAT_PANEL_MARGIN - flatPanel.width;
+        const y = FLAT_PANEL_MARGIN;
+        renderer.setViewport(x, y, flatPanel.width, flatPanel.height);
+        renderer.setScissor(x, y, flatPanel.width, flatPanel.height);
+        renderer.setScissorTest(true);
+        renderer.render(flatScene, flatCamera);
+        renderer.setScissorTest(false);
+    }
+}
+
+function animate() {
+    renderFrame();
+    requestAnimationFrame(animate);
 }
 
 animate();

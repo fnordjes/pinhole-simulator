@@ -55,4 +55,5 @@ Then open <http://localhost:8777>.
 ## Tech
 
 [three.js](https://threejs.org/) for rendering and [lil-gui](https://lil-gui.georgealways.com/)
-for the controls, both loaded from a CDN — no build step or install required.
+for the controls, both loaded from jsDelivr through the import map in
+`index.html` (pinned versions) — no build step or install required.
