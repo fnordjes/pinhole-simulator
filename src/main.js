@@ -1,6 +1,6 @@
-import * as THREE from 'https://esm.sh/three@0.160.0';
-import { OrbitControls } from 'https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js';
-import GUI from 'https://esm.sh/lil-gui@0.19';
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import GUI from 'lil-gui';
 
 // ----------------------------------------------------
 // Basic Three Setup
@@ -53,7 +53,11 @@ const params = {
     // offset
     dx: 0,
     dy: 0,
-    dz: 0
+    dz: 0,
+
+    // view
+    showRays: false,
+    uprightFlatView: false
 };
 
 let filmMesh = null;
@@ -64,36 +68,32 @@ let filmMesh = null;
 
 let envTex = null;
 
-console.log("huhu")
 const textureLoader = new THREE.TextureLoader();
-textureLoader.load("./equi.jpg", (tex) => {
-    console.log("haha")
-    tex.wrapS = THREE.RepeatWrapping;
-    tex.wrapT = THREE.ClampToEdgeWrapping;
-    tex.minFilter = THREE.LinearFilter;
 
-    envTex = tex;
-    uniforms.envTex.value = envTex;
-
-    buildEnvironmentSphere(tex);
-    rebuildFilm();   // build film (and flat view) only after texture ready
-});
-
-document.getElementById('fileInput').addEventListener('change', e => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const url = URL.createObjectURL(file);
+function loadPanorama(url, onLoaded) {
     textureLoader.load(url, tex => {
+        tex.colorSpace = THREE.SRGBColorSpace;
         tex.wrapS = THREE.RepeatWrapping;
         tex.wrapT = THREE.ClampToEdgeWrapping;
         tex.minFilter = THREE.LinearFilter;
 
+        if (envTex) envTex.dispose();
         envTex = tex;
         uniforms.envTex.value = envTex;
 
         buildEnvironmentSphere(tex);
         rebuildFilm();   // build film (and flat view) only after texture ready
+        if (onLoaded) onLoaded();
     });
+}
+
+loadPanorama("./equi.jpg");
+
+document.getElementById('fileInput').addEventListener('change', e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const url = URL.createObjectURL(file);
+    loadPanorama(url, () => URL.revokeObjectURL(url));
 });
 
 // ----------------------------------------------------
@@ -116,20 +116,27 @@ varying vec3 vWorldPos;
 
 const float PI = 3.14159265359;
 
+// Equirectangular UV of a world direction, matching the environment
+// sphere's mapping (see buildEnvironmentSphere), so a direction samples
+// the same texel the sphere shows there. u relies on RepeatWrapping.
+vec2 dirToEquirectUV(vec3 d) {
+    float lon = atan(d.x, d.z);
+    float lat = asin(clamp(d.y, -1.0, 1.0));
+    return vec2(-lon / (2.0 * PI), 0.5 + lat / PI);
+}
+
 void main() {
 
-    // ray from pinhole (origin) to film surface
-    vec3 dir = normalize(vWorldPos);
+    // Light reaching a film point P passed through the pinhole (origin), so
+    // it came from direction -P. This is what makes the image inverted.
+    vec3 incoming = normalize(-vWorldPos);
 
-    float lon = atan(dir.x, dir.z);
-    float lat = asin(dir.y);
-
-    float u = 1.0 - (lon / (2.0 * PI) + 0.5);
-    float v = 1.0 - (lat / PI + 0.5);
-
-    vec3 color = texture2D(envTex, vec2(u, v)).rgb;
+    vec3 color = texture2D(envTex, dirToEquirectUV(incoming)).rgb;
 
     gl_FragColor = vec4(color, 1.0);
+
+    // convert linear -> output color space, like the built-in materials do
+    #include <colorspace_fragment>
 }
 `;
 
@@ -141,7 +148,16 @@ const uniforms = {
 // Film Builders
 // ----------------------------------------------------
 
+let envSphere = null;
+
 function buildEnvironmentSphere(texture) {
+    if (envSphere) {
+        scene.remove(envSphere);
+        envSphere.geometry.dispose();
+        envSphere.material.dispose();
+        envSphere = null;
+    }
+
     const geometry = new THREE.SphereGeometry(100, 64, 64);
     geometry.scale(1, 1, -1);
     geometry.rotateY(Math.PI / 2);
@@ -149,33 +165,20 @@ function buildEnvironmentSphere(texture) {
         map: texture,
         side: THREE.DoubleSide
     });
-    const sphere = new THREE.Mesh(geometry, material);
-    scene.add(sphere);
+    envSphere = new THREE.Mesh(geometry, material);
+    scene.add(envSphere);
 }
 
-function buildPlaneFilm() {
-    const geometry = new THREE.PlaneGeometry(
+function buildPlaneGeometry() {
+    return new THREE.PlaneGeometry(
         params.filmWidth,
         params.filmHeight,
         128,
         128
     );
-
-    const material = new THREE.ShaderMaterial({
-        uniforms,
-        vertexShader,
-        fragmentShader,
-        side: THREE.DoubleSide
-    });
-
-    filmMesh = new THREE.Mesh(geometry, material);
-    filmMesh.position.set(params.dx, params.dy, params.dz);
-
-    scene.add(filmMesh);
 }
 
-function buildCylinderFilm() {
-
+function buildCylinderGeometry() {
     const geometry = new THREE.CylinderGeometry(
         params.radius,
         params.radius,
@@ -186,7 +189,24 @@ function buildCylinderFilm() {
         params.thetaStart,
         params.thetaLength
     );
-    geometry.translate(params.dx, params.dy + params.cylinderHeight / 2, params.dz);
+    // start the tube at the pinhole instead of centring it there
+    geometry.translate(0, params.cylinderHeight / 2, 0);
+    return geometry;
+}
+
+// Rebuilds the film geometry. Only needed when the film type or its shape
+// changes; tilt and offset go through updateFilmTransform().
+function rebuildFilm() {
+    if (filmMesh) {
+        scene.remove(filmMesh);
+        filmMesh.geometry.dispose();
+        filmMesh.material.dispose();
+        filmMesh = null;
+    }
+
+    const geometry = params.filmType === FilmType.PLANE
+        ? buildPlaneGeometry()
+        : buildCylinderGeometry();
 
     const material = new THREE.ShaderMaterial({
         uniforms,
@@ -196,63 +216,47 @@ function buildCylinderFilm() {
     });
 
     filmMesh = new THREE.Mesh(geometry, material);
-
-    // Rotate so cylinder wraps around Z axis
-    filmMesh.rotation.x = Math.PI / 2;
-
     scene.add(filmMesh);
-}
-
-function rebuildFilm() {
-    if (filmMesh) {
-        scene.remove(filmMesh);
-        filmMesh.geometry.dispose();
-        filmMesh.material.dispose();
-        filmMesh = null;
-    }
-
-    if (params.filmType === FilmType.PLANE) {
-        buildPlaneFilm();
-    } else {
-        buildCylinderFilm();
-    }
 
     updateFilmTransform();
     buildFlatView();
-    // buildRays(100); // lower number = more rays
 }
-
 
 let rayLines = null;
 
-function buildRays(sampleStep = 10) {
+const RAY_GRID = 8;        // rays on an 8x8 grid of the film's UV range
+const RAY_LENGTH = 99;     // just inside the environment sphere (radius 100)
 
-    if (!filmMesh) return;
-
+// Rays from sampled film points back through the pinhole out to the
+// environment, i.e. the path the light took to reach the film.
+function updateRays() {
     if (rayLines) {
         scene.remove(rayLines);
         rayLines.geometry.dispose();
+        rayLines.material.dispose();
+        rayLines = null;
     }
 
+    if (!params.showRays || !filmMesh) return;
+
+    filmMesh.updateMatrixWorld(true);
+
+    const posAttr = filmMesh.geometry.attributes.position;
+    const uvAttr = filmMesh.geometry.attributes.uv;
+    const onGrid = x => Math.abs(x * RAY_GRID - Math.round(x * RAY_GRID)) < 1e-4;
+
     const positions = [];
+    const p = new THREE.Vector3();
+    const far = new THREE.Vector3();
 
-    const geom = filmMesh.geometry;
-    const posAttr = geom.attributes.position;
+    for (let i = 0; i < posAttr.count; i++) {
+        if (!onGrid(uvAttr.getX(i)) || !onGrid(uvAttr.getY(i))) continue;
 
-    const tempVec = new THREE.Vector3();
+        p.fromBufferAttribute(posAttr, i);
+        filmMesh.localToWorld(p);
+        far.copy(p).normalize().multiplyScalar(-RAY_LENGTH);
 
-    for (let i = 0; i < posAttr.count; i += sampleStep) {
-
-        tempVec.fromBufferAttribute(posAttr, i);
-
-        // convert to world space
-        filmMesh.localToWorld(tempVec);
-
-        // origin
-        positions.push(0, 0, 0);
-
-        // film point
-        positions.push(tempVec.x, tempVec.y, tempVec.z);
+        positions.push(p.x, p.y, p.z, far.x, far.y, far.z);
     }
 
     const rayGeometry = new THREE.BufferGeometry();
@@ -261,21 +265,33 @@ function buildRays(sampleStep = 10) {
         new THREE.Float32BufferAttribute(positions, 3)
     );
 
-    const rayMaterial = new THREE.LineBasicMaterial({
-        color: 0xffaa00
-    });
-
-    rayLines = new THREE.LineSegments(rayGeometry, rayMaterial);
+    rayLines = new THREE.LineSegments(
+        rayGeometry,
+        new THREE.LineBasicMaterial({ color: 0xffaa00 })
+    );
     scene.add(rayLines);
 }
 
 
+// Places the film from the tilt / offset params. Cheap: no geometry rebuild,
+// and the flat view follows automatically (it reads filmMesh.matrixWorld).
 function updateFilmTransform() {
     if (!filmMesh) return;
 
-    filmMesh.rotation.x += params.rotX;
-    filmMesh.rotation.y += params.rotY;
-    filmMesh.rotation.z += params.rotZ;
+    if (params.filmType === FilmType.PLANE) {
+        // tilts about its own centre, which sits filmDistance in front of
+        // the pinhole (on the same +z side the cylinder extends to)
+        filmMesh.rotation.set(params.rotX, params.rotY, params.rotZ);
+        filmMesh.position.set(params.dx, params.dy, params.filmDistance + params.dz);
+    } else {
+        // base rotation lays the cylinder axis along +z; the tilt and the
+        // offset are applied in that rotated frame, about the pinhole
+        filmMesh.rotation.set(Math.PI / 2 + params.rotX, params.rotY, params.rotZ);
+        filmMesh.position.set(params.dx, params.dy, params.dz).applyEuler(filmMesh.rotation);
+    }
+
+    filmMesh.updateMatrixWorld(true);
+    updateRays();
 }
 
 // ----------------------------------------------------
@@ -285,24 +301,44 @@ function updateFilmTransform() {
 const gui = new GUI();
 
 gui.add(params, "filmType", Object.values(FilmType))
-    .onChange(rebuildFilm);
+    .onChange(() => {
+        updateShapeFolders();
+        rebuildFilm();
+    });
 
-gui.add(params, "filmWidth", 0.1, 5).onChange(rebuildFilm);
-gui.add(params, "filmHeight", 0.1, 5).onChange(rebuildFilm);
-gui.add(params, "filmDistance", 0.1, 10).onChange(rebuildFilm);
+const planeFolder = gui.addFolder("Plane");
+planeFolder.add(params, "filmWidth", 0.1, 5).onChange(rebuildFilm);
+planeFolder.add(params, "filmHeight", 0.1, 5).onChange(rebuildFilm);
+planeFolder.add(params, "filmDistance", 0.1, 10).onChange(updateFilmTransform);
 
-gui.add(params, "radius", 0.5, 10).onChange(rebuildFilm);
-gui.add(params, "thetaStart", -Math.PI, Math.PI).onChange(rebuildFilm);
-gui.add(params, "thetaLength", 0.1, 2 * Math.PI).onChange(rebuildFilm);
-gui.add(params, "cylinderHeight", 0.1, 5).onChange(rebuildFilm);
+const cylinderFolder = gui.addFolder("Cylinder");
+cylinderFolder.add(params, "radius", 0.5, 10).onChange(rebuildFilm);
+cylinderFolder.add(params, "thetaStart", -Math.PI, Math.PI).onChange(rebuildFilm);
+cylinderFolder.add(params, "thetaLength", 0.1, 2 * Math.PI).onChange(rebuildFilm);
+cylinderFolder.add(params, "cylinderHeight", 0.1, 5).onChange(rebuildFilm);
 
-gui.add(params, "rotX", -Math.PI, Math.PI).onChange(rebuildFilm);
-gui.add(params, "rotY", -Math.PI, Math.PI).onChange(rebuildFilm);
-gui.add(params, "rotZ", -Math.PI, Math.PI).onChange(rebuildFilm);
+const tiltFolder = gui.addFolder("Tilt");
+tiltFolder.add(params, "rotX", -Math.PI, Math.PI).onChange(updateFilmTransform);
+tiltFolder.add(params, "rotY", -Math.PI, Math.PI).onChange(updateFilmTransform);
+tiltFolder.add(params, "rotZ", -Math.PI, Math.PI).onChange(updateFilmTransform);
 
-gui.add(params, "dx", -10, 10).onChange(rebuildFilm);
-gui.add(params, "dy", -10, 10).onChange(rebuildFilm);
-gui.add(params, "dz", -10, 10).onChange(rebuildFilm);
+const offsetFolder = gui.addFolder("Offset");
+offsetFolder.add(params, "dx", -10, 10).onChange(updateFilmTransform);
+offsetFolder.add(params, "dy", -10, 10).onChange(updateFilmTransform);
+offsetFolder.add(params, "dz", -10, 10).onChange(updateFilmTransform);
+
+const viewFolder = gui.addFolder("View");
+viewFolder.add(params, "showRays").onChange(updateRays);
+viewFolder.add(params, "uprightFlatView").onChange(updateFlatOrientation);
+viewFolder.add({ exportPNG: exportFlatView }, "exportPNG");
+
+// only show the shape controls for the current film type
+function updateShapeFolders() {
+    const isPlane = params.filmType === FilmType.PLANE;
+    planeFolder.show(isPlane);
+    cylinderFolder.show(!isPlane);
+}
+updateShapeFolders();
 
 // ----------------------------------------------------
 // Helpers
@@ -321,23 +357,34 @@ scene.add(axes);
 // pinhole (origin) to its real world-space position. So it's the same
 // projection as the in-scene film, just flattened into a 2D image.
 
-const flatRenderer = new THREE.WebGLRenderer({ antialias: true });
-flatRenderer.domElement.id = "flatView";
-document.body.appendChild(flatRenderer.domElement);
+// Drawn by the main renderer into a scissored corner of the canvas (so the
+// panorama texture lives in one WebGL context); this div is just its frame.
+const flatFrame = document.createElement("div");
+flatFrame.id = "flatViewFrame";
+document.body.appendChild(flatFrame);
+
+const FLAT_PANEL_MAX = 360;    // longest side of the panel, CSS px
+const FLAT_PANEL_MARGIN = 10;
+const flatPanel = { width: FLAT_PANEL_MAX, height: FLAT_PANEL_MAX };
 
 const flatScene = new THREE.Scene();
+flatScene.background = new THREE.Color(0x000000);
 const flatCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
 flatCamera.position.z = 1;
 
 let flatMesh = null;
+let flatAspect = 1;   // physical width / height of the unwrapped film
 
 // Lays vertices out flat from UVs; keeps the real film point for sampling.
+// aFilmPos is the film-local point; filmMatrix (the film's matrixWorld)
+// places it, so tilting / moving the film needs no rebuild here.
 const flatVertexShader = `
 attribute vec3 aFilmPos;
+uniform mat4 filmMatrix;
 varying vec3 vWorldPos;
 
 void main() {
-    vWorldPos = aFilmPos;
+    vWorldPos = (filmMatrix * vec4(aFilmPos, 1.0)).xyz;
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
 }
 `;
@@ -351,8 +398,6 @@ function buildFlatView() {
         flatMesh.material.dispose();
         flatMesh = null;
     }
-
-    filmMesh.updateMatrixWorld(true);
 
     const srcGeom = filmMesh.geometry;
     const posAttr = srcGeom.attributes.position;
@@ -369,17 +414,8 @@ function buildFlatView() {
     }
 
     const flatPos = new Float32Array(posAttr.count * 3);
-    const filmPos = new Float32Array(posAttr.count * 3);
-    const v = new THREE.Vector3();
 
     for (let i = 0; i < posAttr.count; i++) {
-        // real world-space film point -> ray direction for env sampling
-        v.fromBufferAttribute(posAttr, i);
-        filmMesh.localToWorld(v);
-        filmPos[i * 3] = v.x;
-        filmPos[i * 3 + 1] = v.y;
-        filmPos[i * 3 + 2] = v.z;
-
         // flat layout straight from the surface UVs
         const u = uvAttr.getX(i);
         const w = uvAttr.getY(i);
@@ -390,11 +426,15 @@ function buildFlatView() {
 
     const geom = new THREE.BufferGeometry();
     geom.setAttribute("position", new THREE.BufferAttribute(flatPos, 3));
-    geom.setAttribute("aFilmPos", new THREE.BufferAttribute(filmPos, 3));
+    geom.setAttribute("aFilmPos", posAttr.clone());
     if (srcGeom.index) geom.setIndex(srcGeom.index.clone());
 
     const material = new THREE.ShaderMaterial({
-        uniforms,
+        uniforms: {
+            envTex: uniforms.envTex,
+            // same Matrix4 object, so it tracks the film's transform
+            filmMatrix: { value: filmMesh.matrixWorld }
+        },
         vertexShader: flatVertexShader,
         fragmentShader, // same environment sampling as the in-scene film
         side: THREE.DoubleSide
@@ -402,6 +442,7 @@ function buildFlatView() {
 
     flatMesh = new THREE.Mesh(geom, material);
     flatScene.add(flatMesh);
+    flatFrame.style.display = "block";
 
     // frame the ortho camera to the unwrapped extents
     flatCamera.left = -physW / 2;
@@ -410,10 +451,49 @@ function buildFlatView() {
     flatCamera.bottom = -physH / 2;
     flatCamera.updateProjectionMatrix();
 
-    // size the panel to the film aspect ratio
-    const panelW = 360;
-    const panelH = Math.max(1, Math.round((panelW * physH) / physW));
-    flatRenderer.setSize(panelW, panelH);
+    // size the panel to the film aspect ratio, longest side FLAT_PANEL_MAX
+    flatAspect = physW / physH;
+    const [w, h] = fitLongSide(flatAspect, FLAT_PANEL_MAX);
+    flatPanel.width = w;
+    flatPanel.height = h;
+    flatFrame.style.width = `${w}px`;
+    flatFrame.style.height = `${h}px`;
+}
+
+// width / height in whole pixels for an aspect ratio, longest side = size
+function fitLongSide(aspect, size) {
+    return aspect >= 1
+        ? [size, Math.max(1, Math.round(size / aspect))]
+        : [Math.max(1, Math.round(size * aspect)), size];
+}
+
+// The film image is inverted (rotated 180 degrees) like a real negative.
+// "Upright" rotates the flat view's camera to show it the right way up.
+function updateFlatOrientation() {
+    flatCamera.rotation.z = params.uprightFlatView ? Math.PI : 0;
+}
+
+// Saves the flat view at a higher resolution than the on-screen panel.
+function exportFlatView() {
+    if (!flatMesh) return;
+
+    const [w, h] = fitLongSide(flatAspect, 2048);
+
+    // temporarily resize the drawing buffer only (not the CSS size), render
+    // just the flat view, and read back immediately: no
+    // preserveDrawingBuffer needed. Then restore and redraw before the
+    // browser shows the canvas, so nothing flickers.
+    renderer.setSize(w, h, false);
+    renderer.setScissorTest(false);
+    renderer.render(flatScene, flatCamera);
+    const dataURL = renderer.domElement.toDataURL("image/png");
+    renderer.setSize(window.innerWidth, window.innerHeight, false);
+    renderFrame();
+
+    const link = document.createElement("a");
+    link.download = `pinhole_${params.filmType}.png`;
+    link.href = dataURL;
+    link.click();
 }
 
 // ----------------------------------------------------
@@ -421,6 +501,7 @@ function buildFlatView() {
 // ----------------------------------------------------
 
 rebuildFilm();
+updateFlatOrientation();
 
 window.addEventListener("resize", () => {
     camera.aspect = window.innerWidth / window.innerHeight;
@@ -431,12 +512,29 @@ window.addEventListener("resize", () => {
 // ----------------------------------------------------
 // Render Loop
 // ----------------------------------------------------
-let animation;
-function animate() {
+function renderFrame() {
+    const width = window.innerWidth;
+    const height = window.innerHeight;
 
+    renderer.setScissorTest(false);
+    renderer.setViewport(0, 0, width, height);
     renderer.render(scene, camera);
-    if (flatMesh) flatRenderer.render(flatScene, flatCamera);
-    animation = requestAnimationFrame(animate);
+
+    if (flatMesh) {
+        // viewport / scissor origin is bottom-left; panel sits bottom-right
+        const x = width - FLAT_PANEL_MARGIN - flatPanel.width;
+        const y = FLAT_PANEL_MARGIN;
+        renderer.setViewport(x, y, flatPanel.width, flatPanel.height);
+        renderer.setScissor(x, y, flatPanel.width, flatPanel.height);
+        renderer.setScissorTest(true);
+        renderer.render(flatScene, flatCamera);
+        renderer.setScissorTest(false);
+    }
+}
+
+function animate() {
+    renderFrame();
+    requestAnimationFrame(animate);
 }
 
 animate();
