@@ -37,6 +37,11 @@ A GUI panel (top-right) lets you adjust:
 - **uprightFlatView** — the film image is inverted (rotated 180°), as on a real
   negative; this shows the flat view the right way up
 - **exportPNG** — save the flat view as a PNG (2048 px on the long side)
+- **Settings**: `download JSON` saves the current settings to a file,
+  `upload JSON` loads them back, `reset` restores the defaults
+
+Settings are saved automatically in the browser (`localStorage`) after every
+change and restored when the page is reloaded.
 
 Use the file picker (top-left) to load your own equirectangular (2:1) panorama;
 otherwise the bundled `equi.jpg` is used.
