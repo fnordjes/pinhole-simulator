@@ -341,6 +341,62 @@ function updateShapeFolders() {
 updateShapeFolders();
 
 // ----------------------------------------------------
+// Settings: localStorage + JSON file
+// ----------------------------------------------------
+// lil-gui can serialize itself: gui.save() returns every controller value
+// (function controllers like exportPNG are skipped), gui.load() sets them
+// back and fires the onChange handlers, so the film rebuilds by itself.
+// Every finished change is autosaved to localStorage and restored on load.
+
+const STORAGE_KEY = "pinhole-simulator.settings";
+const defaults = gui.save();
+
+function applySettings(state) {
+    gui.load(state);
+    updateShapeFolders();
+}
+
+function saveLocal() {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(gui.save()));
+}
+
+function loadLocal() {
+    const json = localStorage.getItem(STORAGE_KEY);
+    if (json) applySettings(JSON.parse(json));
+}
+
+function downloadJSON() {
+    const blob = new Blob([JSON.stringify(gui.save(), null, 2)], { type: "application/json" });
+    const link = document.createElement("a");
+    link.download = `pinhole_${params.filmType}.json`;
+    link.href = URL.createObjectURL(blob);
+    link.click();
+    URL.revokeObjectURL(link.href);
+}
+
+function uploadJSON() {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".json,application/json";
+    input.onchange = async () => {
+        const file = input.files[0];
+        if (!file) return;
+        try {
+            applySettings(JSON.parse(await file.text()));
+        } catch (err) {
+            console.error("Could not load settings:", err);
+        }
+    };
+    input.click();
+}
+
+const settingsFolder = gui.addFolder("Settings");
+settingsFolder.add({ download: downloadJSON }, "download").name("download JSON");
+settingsFolder.add({ upload: uploadJSON }, "upload").name("upload JSON");
+settingsFolder.add({ reset: () => applySettings(defaults) }, "reset");
+settingsFolder.close();
+
+// ----------------------------------------------------
 // Helpers
 // ----------------------------------------------------
 
@@ -502,6 +558,8 @@ function exportFlatView() {
 
 rebuildFilm();
 updateFlatOrientation();
+loadLocal();
+gui.onFinishChange(saveLocal);
 
 window.addEventListener("resize", () => {
     camera.aspect = window.innerWidth / window.innerHeight;
