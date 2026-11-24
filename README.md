@@ -2,6 +2,8 @@
 
 An interactive simulator for pinhole cameras with non-planar film surfaces.
 
+**Try it online:** <https://fnordjes.github.io/pinhole-simulator/src/>
+
 It maps an equirectangular panorama onto a large environment sphere and places a
 "film" surface near the pinhole (the origin). A shader on the film samples the
 environment along the ray from the pinhole to each point on the film, so you can
