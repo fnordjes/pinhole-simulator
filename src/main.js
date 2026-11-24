@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import GUI from 'lil-gui';
 
 // ----------------------------------------------------
@@ -31,9 +32,17 @@ const FilmType = {
     CYLINDER: "cylinder"
 };
 
-// All lengths are in millimetres: one world unit is 1 mm. Angles are radians.
+// All lengths are in millimetres (one world unit is 1 mm), all angles in
+// degrees. The pinhole sits at the origin.
 const params = {
     filmType: FilmType.PLANE,
+
+    // camera orientation: turns the whole camera (pinhole + film) about the
+    // pinhole. All 0: the camera looks along -z with y up, the film lies
+    // behind the pinhole on +z.
+    heading: 0,   // + turns right
+    pitch: 0,     // + looks up
+    roll: 0,      // + rolls clockwise (seen from behind the camera)
 
     // plane params
     filmWidth: 20,
@@ -42,26 +51,38 @@ const params = {
 
     // cylinder params
     radius: 20,
-    thetaStart: -Math.PI / 2,
-    thetaLength: Math.PI,
+    thetaStart: -90,
+    thetaLength: 180,
     cylinderHeight: 15,
 
-    // tilt
+    // film tilt inside the camera, about the film's centre (cylinder: the
+    // middle of its axis)
     rotX: 0,
     rotY: 0,
     rotZ: 0,
 
-    // offset
+    // film offset inside the camera, in the camera's frame (x right, y up,
+    // z back along the camera axis)
     dx: 0,
     dy: 0,
     dz: 0,
 
     // view
     showRays: false,
-    uprightFlatView: false
+    uprightFlatView: false,
+    cameraHandle: true
 };
 
+const rad = THREE.MathUtils.degToRad;
+const deg = THREE.MathUtils.radToDeg;
+
 let filmMesh = null;
+
+// The camera body: the film and the optical axis hang off this group, which
+// heading / pitch / roll turn about the pinhole at the origin.
+const cameraRig = new THREE.Group();
+cameraRig.rotation.order = "YXZ";   // heading, then pitch, then roll
+scene.add(cameraRig);
 
 // ----------------------------------------------------
 // Environment Texture
@@ -188,11 +209,13 @@ function buildCylinderGeometry() {
         256,
         1,
         true,
-        params.thetaStart,
-        params.thetaLength
+        rad(params.thetaStart),
+        rad(params.thetaLength)
     );
-    // start the tube at the pinhole instead of centring it there
-    geometry.translate(0, params.cylinderHeight / 2, 0);
+    // lay the axis along +z, the camera axis. The tube stays centred on the
+    // origin, so the film tilt turns it about the middle of its axis;
+    // updateFilmTransform() moves it to start at the pinhole.
+    geometry.rotateX(Math.PI / 2);
     return geometry;
 }
 
@@ -200,7 +223,7 @@ function buildCylinderGeometry() {
 // changes; tilt and offset go through updateFilmTransform().
 function rebuildFilm() {
     if (filmMesh) {
-        scene.remove(filmMesh);
+        cameraRig.remove(filmMesh);
         filmMesh.geometry.dispose();
         filmMesh.material.dispose();
         filmMesh = null;
@@ -218,7 +241,7 @@ function rebuildFilm() {
     });
 
     filmMesh = new THREE.Mesh(geometry, material);
-    scene.add(filmMesh);
+    cameraRig.add(filmMesh);
 
     updateFilmTransform();
     buildFlatView();
@@ -241,7 +264,7 @@ function updateRays() {
 
     if (!params.showRays || !filmMesh) return;
 
-    filmMesh.updateMatrixWorld(true);
+    cameraRig.updateMatrixWorld(true);
 
     const posAttr = filmMesh.geometry.attributes.position;
     const uvAttr = filmMesh.geometry.attributes.uv;
@@ -275,25 +298,52 @@ function updateRays() {
 }
 
 
-// Places the film from the tilt / offset params. Cheap: no geometry rebuild,
-// and the flat view follows automatically (it reads filmMesh.matrixWorld).
+// Places the film inside the camera from the film tilt / offset params.
+// Cheap: no geometry rebuild, and the flat view follows automatically (it
+// reads filmMesh.matrixWorld).
 function updateFilmTransform() {
     if (!filmMesh) return;
 
-    if (params.filmType === FilmType.PLANE) {
-        // tilts about its own centre, which sits filmDistance in front of
-        // the pinhole (on the same +z side the cylinder extends to)
-        filmMesh.rotation.set(params.rotX, params.rotY, params.rotZ);
-        filmMesh.position.set(params.dx, params.dy, params.filmDistance + params.dz);
-    } else {
-        // base rotation lays the cylinder axis along +z; the tilt and the
-        // offset are applied in that rotated frame, about the pinhole
-        filmMesh.rotation.set(Math.PI / 2 + params.rotX, params.rotY, params.rotZ);
-        filmMesh.position.set(params.dx, params.dy, params.dz).applyEuler(filmMesh.rotation);
-    }
+    // both film types tilt about their centre, which sits on the camera
+    // axis behind the pinhole: the plane filmDistance away, the cylinder
+    // so that its tube starts at the pinhole
+    const centreZ = params.filmType === FilmType.PLANE
+        ? params.filmDistance
+        : params.cylinderHeight / 2;
 
-    filmMesh.updateMatrixWorld(true);
+    filmMesh.rotation.set(rad(params.rotX), rad(params.rotY), rad(params.rotZ));
+    filmMesh.position.set(params.dx, params.dy, centreZ + params.dz);
+
+    cameraRig.updateMatrixWorld(true);
     updateRays();
+}
+
+const round1 = x => Math.round(x * 10) / 10;
+
+// Turns the whole camera about the pinhole from heading / pitch / roll.
+function updateCameraOrientation() {
+    cameraRig.rotation.set(rad(params.pitch), -rad(params.heading), -rad(params.roll));
+    cameraRig.updateMatrixWorld(true);
+    updateRays();
+}
+
+// The reverse, after the rotation handle turned the rig: rig -> params.
+function readCameraOrientation() {
+    params.pitch = round1(deg(cameraRig.rotation.x));
+    params.heading = round1(-deg(cameraRig.rotation.y));
+    params.roll = round1(-deg(cameraRig.rotation.z));
+    cameraFolder.controllers.forEach(c => c.updateDisplay());
+    updateRays();
+}
+
+// Points the camera where the orbit view is looking; keeps the roll.
+function aimAtView() {
+    const dir = camera.getWorldDirection(new THREE.Vector3());
+    params.pitch = round1(deg(Math.asin(THREE.MathUtils.clamp(dir.y, -1, 1))));
+    params.heading = round1(deg(Math.atan2(dir.x, -dir.z)));
+    cameraFolder.controllers.forEach(c => c.updateDisplay());
+    updateCameraOrientation();
+    saveLocal();
 }
 
 // ----------------------------------------------------
@@ -308,6 +358,12 @@ gui.add(params, "filmType", Object.values(FilmType))
         rebuildFilm();
     });
 
+const cameraFolder = gui.addFolder("Camera");
+cameraFolder.add(params, "heading", -180, 180, 1).onChange(updateCameraOrientation);
+cameraFolder.add(params, "pitch", -90, 90, 1).onChange(updateCameraOrientation);
+cameraFolder.add(params, "roll", -180, 180, 1).onChange(updateCameraOrientation);
+cameraFolder.add({ aimAtView }, "aimAtView").name("aim at view");
+
 const planeFolder = gui.addFolder("Plane");
 planeFolder.add(params, "filmWidth", 1, 150).onChange(rebuildFilm);
 planeFolder.add(params, "filmHeight", 1, 150).onChange(rebuildFilm);
@@ -315,16 +371,16 @@ planeFolder.add(params, "filmDistance", 1, 150).onChange(updateFilmTransform);
 
 const cylinderFolder = gui.addFolder("Cylinder");
 cylinderFolder.add(params, "radius", 5, 150).onChange(rebuildFilm);
-cylinderFolder.add(params, "thetaStart", -Math.PI, Math.PI).onChange(rebuildFilm);
-cylinderFolder.add(params, "thetaLength", 0.1, 2 * Math.PI).onChange(rebuildFilm);
+cylinderFolder.add(params, "thetaStart", -180, 180, 0.5).onChange(rebuildFilm);
+cylinderFolder.add(params, "thetaLength", 1, 360, 0.5).onChange(rebuildFilm);
 cylinderFolder.add(params, "cylinderHeight", 1, 150).onChange(rebuildFilm);
 
-const tiltFolder = gui.addFolder("Tilt");
-tiltFolder.add(params, "rotX", -Math.PI, Math.PI).onChange(updateFilmTransform);
-tiltFolder.add(params, "rotY", -Math.PI, Math.PI).onChange(updateFilmTransform);
-tiltFolder.add(params, "rotZ", -Math.PI, Math.PI).onChange(updateFilmTransform);
+const tiltFolder = gui.addFolder("Film tilt");
+tiltFolder.add(params, "rotX", -180, 180, 0.5).onChange(updateFilmTransform);
+tiltFolder.add(params, "rotY", -180, 180, 0.5).onChange(updateFilmTransform);
+tiltFolder.add(params, "rotZ", -180, 180, 0.5).onChange(updateFilmTransform);
 
-const offsetFolder = gui.addFolder("Offset");
+const offsetFolder = gui.addFolder("Film offset");
 offsetFolder.add(params, "dx", -100, 100).onChange(updateFilmTransform);
 offsetFolder.add(params, "dy", -100, 100).onChange(updateFilmTransform);
 offsetFolder.add(params, "dz", -100, 100).onChange(updateFilmTransform);
@@ -332,6 +388,7 @@ offsetFolder.add(params, "dz", -100, 100).onChange(updateFilmTransform);
 const viewFolder = gui.addFolder("View");
 viewFolder.add(params, "showRays").onChange(updateRays);
 viewFolder.add(params, "uprightFlatView").onChange(updateFlatOrientation);
+viewFolder.add(params, "cameraHandle").onChange(updateCameraHandle);
 viewFolder.add({ exportPNG: exportFlatView }, "exportPNG");
 
 // only show the shape controls for the current film type
@@ -430,6 +487,33 @@ settingsFolder.close();
 const axes = new THREE.AxesHelper(20);
 scene.add(axes);
 
+// Optical axis: from the pinhole out along the camera's viewing direction.
+const opticalAxis = new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(0, 0, 0),
+        new THREE.Vector3(0, 0, -200)
+    ]),
+    new THREE.LineBasicMaterial({ color: 0x00ffff })
+);
+cameraRig.add(opticalAxis);
+
+// Rotation handle: drag its rings to turn the camera about the pinhole.
+const cameraHandle = new TransformControls(camera, renderer.domElement);
+cameraHandle.setMode("rotate");
+cameraHandle.setSpace("local");
+cameraHandle.attach(cameraRig);
+cameraHandle.addEventListener("objectChange", readCameraOrientation);
+cameraHandle.addEventListener("dragging-changed", e => {
+    controls.enabled = !e.value;   // no orbiting while turning the camera
+    if (!e.value) saveLocal();
+});
+scene.add(cameraHandle);
+
+function updateCameraHandle() {
+    cameraHandle.visible = params.cameraHandle;
+    cameraHandle.enabled = params.cameraHandle;
+}
+
 // ----------------------------------------------------
 // Flat (unwrapped) view
 // ----------------------------------------------------
@@ -492,7 +576,7 @@ function buildFlatView() {
         physW = params.filmWidth;
         physH = params.filmHeight;
     } else {
-        physW = params.radius * params.thetaLength; // arc length
+        physW = params.radius * rad(params.thetaLength); // arc length
         physH = params.cylinderHeight;
     }
 
@@ -583,8 +667,10 @@ function exportFlatView() {
 // Init
 // ----------------------------------------------------
 
+updateCameraOrientation();
 rebuildFilm();
 updateFlatOrientation();
+updateCameraHandle();
 loadLocal();
 gui.onFinishChange(saveLocal);
 

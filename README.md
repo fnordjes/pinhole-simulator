@@ -28,18 +28,30 @@ direction −P. That is why the image on the film is inverted.
 ## Controls
 
 A GUI panel (top-right) lets you adjust the settings below. All lengths are in
-millimetres (one scene unit is 1 mm, the pinhole sits at the origin); angles
-are in radians.
+millimetres (one scene unit is 1 mm, the pinhole sits at the origin); all
+angles are in degrees.
+
+The controls work on two levels: **Camera** points the whole camera, and the
+film settings place the film inside the camera body. In the camera's own frame
+it looks along −z with y up, and the film lies behind the pinhole on +z.
 
 - **filmType** — `plane` or `cylinder`
-- **Plane**: `filmWidth`, `filmHeight`
-- **Cylinder**: `radius`, `thetaStart`, `thetaLength`, `cylinderHeight`
-- **Tilt**: `rotX`, `rotY`, `rotZ`
-- **Offset**: `dx`, `dy`, `dz`
+- **Camera**: `heading` (+ turns right), `pitch` (+ looks up), `roll` (+ rolls
+  clockwise) turn the camera, pinhole and film together, about the pinhole.
+  `aim at view` points the camera where the 3D view is looking. The cyan line
+  is the camera's optical axis.
+- **Plane**: `filmWidth`, `filmHeight`, `filmDistance` (pinhole to film centre)
+- **Cylinder**: `radius`, `thetaStart`, `thetaLength`, `cylinderHeight`. The
+  tube's axis runs along the camera axis and starts at the pinhole.
+- **Film tilt**: `rotX`, `rotY`, `rotZ` tilt the film about its centre — for
+  a cylinder, the middle of its axis
+- **Film offset**: `dx`, `dy`, `dz` move the film inside the camera
 - **showRays** — draw rays from points on the film back through the pinhole
   into the scene
 - **uprightFlatView** — the film image is inverted (rotated 180°), as on a real
   negative; this shows the flat view the right way up
+- **cameraHandle** — rings around the pinhole in the 3D view; drag them to
+  turn the camera
 - **exportPNG** — save the flat view as a PNG (2048 px on the long side)
 - **Settings**: `download JSON` saves the current settings to a file,
   `upload JSON` loads them back, `reset` restores the defaults
@@ -53,9 +65,11 @@ The **Presets** folder loads ready-made settings for the omniscope cameras
 ([omniscope-pinhole](https://github.com/fnordjes/omniscope-pinhole)) and other
 pinhole cameras. They are
 plain settings files in `src/presets/`, so `upload JSON` takes them too, and a
-new preset is a JSON file plus one line in `PRESETS` in `main.js`. The camera axis is vertical with the pinhole on
-top, so the film band sits below the pinhole and images the surroundings above
-the horizon.
+new preset is a JSON file plus one line in `PRESETS` in `main.js`.
+
+The omniscopes point straight up (pitch 90°): the camera axis is vertical with
+the pinhole on top, so the film band sits below the pinhole and images the
+surroundings above the horizon.
 
 | File | Camera | Film radius | Image band | Pinhole to band | Film arc |
 |---|---|---|---|---|---|
@@ -69,6 +83,8 @@ centred pinhole (about 78° × 87° field of view).
 `pin-o-rama.json` ("PIN-O-RAMA") is a panoramic camera with curved film: 35 mm
 film (full width, 35 mm high) bent into an arc of 25 mm radius around the
 pinhole, covering 110° horizontally (48 mm of film) and about 70° vertically.
+Its tube is centred on the pinhole and tilted by −90° so the axis stands
+upright, across the camera axis.
 
 Use the file picker (top-left) to load your own equirectangular (2:1) panorama;
 otherwise the bundled `equi.jpg` is used.
