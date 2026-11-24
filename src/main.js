@@ -15,10 +15,10 @@ document.body.appendChild(renderer.domElement);
 const camera = new THREE.PerspectiveCamera(
     60,
     window.innerWidth / window.innerHeight,
-    0.1,
-    1000
+    1,
+    10000
 );
-camera.position.set(0, 0, 5);
+camera.position.set(0, 0, 50);
 
 const controls = new OrbitControls(camera, renderer.domElement);
 
@@ -31,19 +31,20 @@ const FilmType = {
     CYLINDER: "cylinder"
 };
 
+// All lengths are in millimetres: one world unit is 1 mm. Angles are radians.
 const params = {
     filmType: FilmType.PLANE,
 
     // plane params
-    filmWidth: 2,
-    filmHeight: 1.5,
-    filmDistance: 2,
+    filmWidth: 20,
+    filmHeight: 15,
+    filmDistance: 20,
 
     // cylinder params
-    radius: 2,
+    radius: 20,
     thetaStart: -Math.PI / 2,
     thetaLength: Math.PI,
-    cylinderHeight: 1.5,
+    cylinderHeight: 15,
 
     // tilt
     rotX: 0,
@@ -149,6 +150,7 @@ const uniforms = {
 // ----------------------------------------------------
 
 let envSphere = null;
+const ENV_RADIUS = 1000;   // mm; far enough to dwarf any film
 
 function buildEnvironmentSphere(texture) {
     if (envSphere) {
@@ -158,7 +160,7 @@ function buildEnvironmentSphere(texture) {
         envSphere = null;
     }
 
-    const geometry = new THREE.SphereGeometry(100, 64, 64);
+    const geometry = new THREE.SphereGeometry(ENV_RADIUS, 64, 64);
     geometry.scale(1, 1, -1);
     geometry.rotateY(Math.PI / 2);
     const material = new THREE.MeshBasicMaterial({
@@ -225,7 +227,7 @@ function rebuildFilm() {
 let rayLines = null;
 
 const RAY_GRID = 8;        // rays on an 8x8 grid of the film's UV range
-const RAY_LENGTH = 99;     // just inside the environment sphere (radius 100)
+const RAY_LENGTH = 990;    // just inside the environment sphere (ENV_RADIUS)
 
 // Rays from sampled film points back through the pinhole out to the
 // environment, i.e. the path the light took to reach the film.
@@ -307,15 +309,15 @@ gui.add(params, "filmType", Object.values(FilmType))
     });
 
 const planeFolder = gui.addFolder("Plane");
-planeFolder.add(params, "filmWidth", 0.1, 10).onChange(rebuildFilm);
-planeFolder.add(params, "filmHeight", 0.1, 10).onChange(rebuildFilm);
-planeFolder.add(params, "filmDistance", 0.1, 10).onChange(updateFilmTransform);
+planeFolder.add(params, "filmWidth", 1, 150).onChange(rebuildFilm);
+planeFolder.add(params, "filmHeight", 1, 150).onChange(rebuildFilm);
+planeFolder.add(params, "filmDistance", 1, 150).onChange(updateFilmTransform);
 
 const cylinderFolder = gui.addFolder("Cylinder");
-cylinderFolder.add(params, "radius", 0.5, 10).onChange(rebuildFilm);
+cylinderFolder.add(params, "radius", 5, 150).onChange(rebuildFilm);
 cylinderFolder.add(params, "thetaStart", -Math.PI, Math.PI).onChange(rebuildFilm);
 cylinderFolder.add(params, "thetaLength", 0.1, 2 * Math.PI).onChange(rebuildFilm);
-cylinderFolder.add(params, "cylinderHeight", 0.1, 5).onChange(rebuildFilm);
+cylinderFolder.add(params, "cylinderHeight", 1, 150).onChange(rebuildFilm);
 
 const tiltFolder = gui.addFolder("Tilt");
 tiltFolder.add(params, "rotX", -Math.PI, Math.PI).onChange(updateFilmTransform);
@@ -323,9 +325,9 @@ tiltFolder.add(params, "rotY", -Math.PI, Math.PI).onChange(updateFilmTransform);
 tiltFolder.add(params, "rotZ", -Math.PI, Math.PI).onChange(updateFilmTransform);
 
 const offsetFolder = gui.addFolder("Offset");
-offsetFolder.add(params, "dx", -10, 10).onChange(updateFilmTransform);
-offsetFolder.add(params, "dy", -10, 10).onChange(updateFilmTransform);
-offsetFolder.add(params, "dz", -10, 10).onChange(updateFilmTransform);
+offsetFolder.add(params, "dx", -100, 100).onChange(updateFilmTransform);
+offsetFolder.add(params, "dy", -100, 100).onChange(updateFilmTransform);
+offsetFolder.add(params, "dz", -100, 100).onChange(updateFilmTransform);
 
 const viewFolder = gui.addFolder("View");
 viewFolder.add(params, "showRays").onChange(updateRays);
@@ -425,7 +427,7 @@ settingsFolder.close();
 // Helpers
 // ----------------------------------------------------
 
-const axes = new THREE.AxesHelper(2);
+const axes = new THREE.AxesHelper(20);
 scene.add(axes);
 
 // ----------------------------------------------------

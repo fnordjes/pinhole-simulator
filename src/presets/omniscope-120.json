@@ -5,18 +5,18 @@
   "folders": {
     "Plane": {
       "controllers": {
-        "filmWidth": 2,
-        "filmHeight": 1.5,
-        "filmDistance": 2
+        "filmWidth": 20,
+        "filmHeight": 15.0,
+        "filmDistance": 20
       },
       "folders": {}
     },
     "Cylinder": {
       "controllers": {
-        "radius": 2.8,
+        "radius": 28.0,
         "thetaStart": -2.7096,
         "thetaLength": 5.4191,
-        "cylinderHeight": 5.75
+        "cylinderHeight": 57.5
       },
       "folders": {}
     },
@@ -31,7 +31,7 @@
     "Offset": {
       "controllers": {
         "dx": 0,
-        "dy": 0.95,
+        "dy": 9.5,
         "dz": 0
       },
       "folders": {}

@@ -25,7 +25,9 @@ direction −P. That is why the image on the film is inverted.
 
 ## Controls
 
-A GUI panel (top-right) lets you adjust:
+A GUI panel (top-right) lets you adjust the settings below. All lengths are in
+millimetres (one scene unit is 1 mm, the pinhole sits at the origin); angles
+are in radians.
 
 - **filmType** — `plane` or `cylinder`
 - **Plane**: `filmWidth`, `filmHeight`
@@ -49,7 +51,7 @@ The **Presets** folder loads ready-made settings for the omniscope cameras
 ([omniscope-pinhole](https://github.com/fnordjes/omniscope-pinhole)) and other
 pinhole cameras. They are
 plain settings files in `src/presets/`, so `upload JSON` takes them too, and a
-new preset is a JSON file plus one line in `PRESETS` in `main.js`. One unit is 10 mm. The camera axis is vertical with the pinhole on
+new preset is a JSON file plus one line in `PRESETS` in `main.js`. The camera axis is vertical with the pinhole on
 top, so the film band sits below the pinhole and images the surroundings above
 the horizon.
 
