@@ -390,6 +390,29 @@ function uploadJSON() {
     input.click();
 }
 
+// Presets: settings files in ./presets, loaded like an uploaded JSON. They
+// are buttons (function controllers), so gui.save() leaves them out.
+const PRESETS = {
+    "Omniscope 120": "./presets/omniscope-120.json",
+    "Omniscope 35 mm": "./presets/omniscope-35mm.json"
+};
+
+async function loadPreset(url) {
+    try {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+        applySettings(await response.json());
+        saveLocal();
+    } catch (err) {
+        console.error(`Could not load preset ${url}:`, err);
+    }
+}
+
+const presetFolder = gui.addFolder("Presets");
+for (const [name, url] of Object.entries(PRESETS)) {
+    presetFolder.add({ load: () => loadPreset(url) }, "load").name(name);
+}
+
 const settingsFolder = gui.addFolder("Settings");
 settingsFolder.add({ download: downloadJSON }, "download").name("download JSON");
 settingsFolder.add({ upload: uploadJSON }, "upload").name("upload JSON");

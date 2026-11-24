@@ -43,6 +43,20 @@ A GUI panel (top-right) lets you adjust:
 Settings are saved automatically in the browser (`localStorage`) after every
 change and restored when the page is reloaded.
 
+### Presets
+
+The **Presets** folder loads ready-made settings for the omniscope cameras
+([omniscope-pinhole](https://github.com/fnordjes/omniscope-pinhole)). They are
+plain settings files in `src/presets/`, so `upload JSON` takes them too, and a
+new preset is a JSON file plus one line in `PRESETS` in `main.js`. One unit is 10 mm. The camera axis is vertical with the pinhole on
+top, so the film band sits below the pinhole and images the surroundings above
+the horizon.
+
+| File | Camera | Film radius | Image band | Pinhole to band | Film arc |
+|---|---|---|---|---|---|
+| `omniscope-120.json` | 120 cartridge rig | 28 mm | 57.5 mm (61 mm film minus the ring edges) | 9.5 mm | 310° |
+| `omniscope-35mm.json` | 35 mm rig | 20 mm | 35 mm (full width, perforations included) | 8.25 mm | 295° |
+
 Use the file picker (top-left) to load your own equirectangular (2:1) panorama;
 otherwise the bundled `equi.jpg` is used.
 
