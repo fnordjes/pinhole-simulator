@@ -1,0 +1,51 @@
+{
+  "controllers": {
+    "filmType": "plane"
+  },
+  "folders": {
+    "Plane": {
+      "controllers": {
+        "filmWidth": 5.2,
+        "filmHeight": 6.1,
+        "filmDistance": 3.2
+      },
+      "folders": {}
+    },
+    "Cylinder": {
+      "controllers": {
+        "radius": 2,
+        "thetaStart": -1.5708,
+        "thetaLength": 3.1416,
+        "cylinderHeight": 1.5
+      },
+      "folders": {}
+    },
+    "Tilt": {
+      "controllers": {
+        "rotX": 0,
+        "rotY": 0,
+        "rotZ": 0
+      },
+      "folders": {}
+    },
+    "Offset": {
+      "controllers": {
+        "dx": 0,
+        "dy": 0,
+        "dz": 0
+      },
+      "folders": {}
+    },
+    "View": {
+      "controllers": {
+        "showRays": false,
+        "uprightFlatView": true
+      },
+      "folders": {}
+    },
+    "Settings": {
+      "controllers": {},
+      "folders": {}
+    }
+  }
+}

@@ -307,8 +307,8 @@ gui.add(params, "filmType", Object.values(FilmType))
     });
 
 const planeFolder = gui.addFolder("Plane");
-planeFolder.add(params, "filmWidth", 0.1, 5).onChange(rebuildFilm);
-planeFolder.add(params, "filmHeight", 0.1, 5).onChange(rebuildFilm);
+planeFolder.add(params, "filmWidth", 0.1, 10).onChange(rebuildFilm);
+planeFolder.add(params, "filmHeight", 0.1, 10).onChange(rebuildFilm);
 planeFolder.add(params, "filmDistance", 0.1, 10).onChange(updateFilmTransform);
 
 const cylinderFolder = gui.addFolder("Cylinder");
@@ -394,7 +394,8 @@ function uploadJSON() {
 // are buttons (function controllers), so gui.save() leaves them out.
 const PRESETS = {
     "Omniscope 120": "./presets/omniscope-120.json",
-    "Omniscope 35 mm": "./presets/omniscope-35mm.json"
+    "Omniscope 35 mm": "./presets/omniscope-35mm.json",
+    "pinhole 120 (cigarillo)": "./presets/pinhole-120-cigarillo.json"
 };
 
 async function loadPreset(url) {
