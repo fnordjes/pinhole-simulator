@@ -3,36 +3,44 @@
     "filmType": "cylinder"
   },
   "folders": {
+    "Camera": {
+      "controllers": {
+        "heading": 0,
+        "pitch": 0,
+        "roll": 0
+      },
+      "folders": {}
+    },
     "Plane": {
       "controllers": {
         "filmWidth": 20,
-        "filmHeight": 15.0,
+        "filmHeight": 15,
         "filmDistance": 20
       },
       "folders": {}
     },
     "Cylinder": {
       "controllers": {
-        "radius": 25.0,
-        "thetaStart": -0.9599,
-        "thetaLength": 1.9199,
-        "cylinderHeight": 35.0
+        "radius": 25,
+        "thetaStart": -55,
+        "thetaLength": 110,
+        "cylinderHeight": 35
       },
       "folders": {}
     },
-    "Tilt": {
+    "Film tilt": {
       "controllers": {
-        "rotX": -1.5708,
+        "rotX": -90,
         "rotY": 0,
         "rotZ": 0
       },
       "folders": {}
     },
-    "Offset": {
+    "Film offset": {
       "controllers": {
         "dx": 0,
-        "dy": -17.5,
-        "dz": 0
+        "dy": 0,
+        "dz": -17.5
       },
       "folders": {}
     },
@@ -41,10 +49,6 @@
         "showRays": false,
         "uprightFlatView": true
       },
-      "folders": {}
-    },
-    "Settings": {
-      "controllers": {},
       "folders": {}
     }
   }
