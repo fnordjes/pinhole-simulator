@@ -46,8 +46,8 @@ change and restored when the page is reloaded.
 ### Presets
 
 The **Presets** folder loads ready-made settings for the omniscope cameras
-([omniscope-pinhole](https://github.com/fnordjes/omniscope-pinhole)) and a
-cigar-box pinhole camera. They are
+([omniscope-pinhole](https://github.com/fnordjes/omniscope-pinhole)) and other
+pinhole cameras. They are
 plain settings files in `src/presets/`, so `upload JSON` takes them too, and a
 new preset is a JSON file plus one line in `PRESETS` in `main.js`. One unit is 10 mm. The camera axis is vertical with the pinhole on
 top, so the film band sits below the pinhole and images the surroundings above
@@ -61,6 +61,10 @@ the horizon.
 `pinhole-120-cigarillo.json` ("pinhole 120 (cigarillo)") is a conventional
 cigar-box camera with flat film: a 52 × 61 mm frame on 120 film, 32 mm from a
 centred pinhole (about 78° × 87° field of view).
+
+`pin-o-rama.json` ("PIN-O-RAMA") is a panoramic camera with curved film: 35 mm
+film (full width, 35 mm high) bent into an arc of 25 mm radius around the
+pinhole, covering 110° horizontally (48 mm of film) and about 70° vertically.
 
 Use the file picker (top-left) to load your own equirectangular (2:1) panorama;
 otherwise the bundled `equi.jpg` is used.

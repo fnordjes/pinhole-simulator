@@ -395,7 +395,8 @@ function uploadJSON() {
 const PRESETS = {
     "Omniscope 120": "./presets/omniscope-120.json",
     "Omniscope 35 mm": "./presets/omniscope-35mm.json",
-    "pinhole 120 (cigarillo)": "./presets/pinhole-120-cigarillo.json"
+    "pinhole 120 (cigarillo)": "./presets/pinhole-120-cigarillo.json",
+    "PIN-O-RAMA": "./presets/pin-o-rama.json"
 };
 
 async function loadPreset(url) {
